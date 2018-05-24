@@ -5,6 +5,8 @@ from tkinter import messagebox
 #http://python-textbok.readthedocs.io/en/1.0/Object_Oriented_Programming.html
 #http://python-textbok.readthedocs.io/en/1.0/Introduction_to_GUI_Programming.html
 
+#Python Code Downloaded and Tested
+
 gui_width=485
 gui_height=600
 class SetupScanheadFrame:
