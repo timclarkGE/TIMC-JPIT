@@ -6,6 +6,8 @@ from tkinter import messagebox
 #http://python-textbok.readthedocs.io/en/1.0/Introduction_to_GUI_Programming.html
 
 #Python Code Downloaded and Tested
+#Issue, I don't see these comments on my work laptop
+testVar = 1
 
 gui_width=485
 gui_height=600
