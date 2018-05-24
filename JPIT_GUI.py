@@ -7,7 +7,8 @@ from tkinter import messagebox
 
 #Python Code Downloaded and Tested
 #Issue, I don't see these comments on my work laptop
-testVar = 5
+#I've changed the GIT user name and found the "push" button under the GIT menu. I think this will work now.
+
 
 
 gui_width=485
