@@ -1,5 +1,6 @@
 from tkinter import *
 from tkinter import messagebox
+import serial
 #Websites about Class and GUI
 #https://jeffknupp.com/blog/2014/06/18/improve-your-python-python-classes-and-object-oriented-programming/
 #http://python-textbok.readthedocs.io/en/1.0/Object_Oriented_Programming.html
@@ -291,6 +292,9 @@ class FaultFrame():
         self.entry.grid(row=1, column=0, columnspan=2, padx=30)
         self.button.grid(row=1,column=2, pady=5, padx=5)
 
+ser = serial.Serial("COM20", 115200, timeout = 0.05)
+ser.write(b'ACKNOWLEDGEALL\n')
+print("Results " + ser.readline().decode('ascii'))
 
 root = Tk()
 root.geometry(str(gui_width)+"x"+str(gui_height))
