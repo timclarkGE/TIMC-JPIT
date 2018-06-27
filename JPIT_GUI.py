@@ -41,7 +41,6 @@ import time
 FBK_THREAD_WAIT = 0.0001
 SCAN_THREAD_WAIT = 0.25
 
-
 class SetupMainWindow:
     def __init__(self):
         self.gui_width = 485
@@ -56,9 +55,10 @@ class SetupScanheadFrame:
         self.jogText1 = "CCW"
         self.jogText2 = "CW"
         self.speedMin = 0.5
-        self.speedMax = 15
+        self.speedMax = 20
         self.speedRes = 0.5
         self.maxError = 0.22
+        self.queue_name = "CTRL"
 
 
 class SetupPusherFrame:
@@ -71,6 +71,7 @@ class SetupPusherFrame:
         self.speedMax = 1
         self.speedRes = 0.05
         self.maxError = 1
+        self.queue_name = "CTRL"
 
 
 class SetupScanFrame:
@@ -84,6 +85,7 @@ class SetupScanFrame:
         self.indexSpeedRes = 0.05
         self.scanAxisUnits = "deg"
         self.indexAxisUnits = "in"
+        self.queue_name = "SCAN"
 
 
 class MainWindow:
@@ -128,31 +130,39 @@ class MainWindow:
         self.init_communication()
 
     # Main method for sending commands to TIMC
-    def acmd(self, read_queue, write_queue, text):
+    def acmd(self, queue_name, text):
+
+        # There are four read/write queues
+        if (queue_name == "CTRL"):
+            write_queue = self.qControl_write
+            read_queue = self.qControl_read
+        elif( queue_name == "SCAN"):
+            write_queue = self.qScan_write
+            read_queue = self.qScan_read
+        elif(queue_name == "STATUS"):
+            write_queue = self.qStatus_write
+            read_queue = self.qStatus_read
+        elif(queue_name == "FBK"):
+            write_queue = self.qFBK_write
+            read_queue = self.qFBK_read
 
         write_queue.put(text)
         data = read_queue.get()
 
-        # TODO: create feedback for user from these
         if "!" in data:
-            print("!")
-            # self.fault.flash("TIMC: Bad Execution")
+            print("(!) Bad Execution")
             return 0
         elif "#" in data:
-            # TODO: when jogging at fast speeds, this error will pop up when attempting to change direction before the axis has stopped.
-            # self.fault.flash("TIMC: Acknowledge but cannot execute command")
-            print("#")
+            print("(#) ACK but cannot execute")
             return 0
         elif "$" in data:
-            self.fault.flash("TIMC: Command timed out")
+            print("($) CMD timeout")
             return 0
         elif data == "":
-            # TODO: check that unplugging the serial connection creates this error
-            # self.fault.flash("TIMC: No data, check serial connection")
+            print("No data returned, check serial connection")
             return 0
         else:
             data = data.replace("%", "")
-            # self.fault.update_status("Success :"+data)
             return data
 
     def init_communication(self):
@@ -185,7 +195,8 @@ class SerialThread(threading.Thread):
         self._is_running = 1
         self.port_open = 0
         self.baud = baud
-        self.debug = 0
+
+        self.setDaemon(False)
 
     def run(self):
 
@@ -200,7 +211,7 @@ class SerialThread(threading.Thread):
             except (OSError, serial.SerialException):
                 pass
         if len(result) == 1:
-            self.s = serial.Serial(result[0], self.baud)
+            self.s = serial.Serial(result[0], self.baud, timeout = 0.05)
 
             # Send a command to check if communication has been established
             self.s.write("ACKNOWLEDGEALL".encode('ascii') + b' \n')
@@ -216,41 +227,43 @@ class SerialThread(threading.Thread):
         else:
             self._is_running = 0
 
+        print("Just started Serial Thread: \n", threading.enumerate())
+
         # Thread main loop
         while self._is_running:
             # Check data in queue with queue priority being: qControl, qScan, qStatus, qFBK_write, qFBK_read, qLog
             time.sleep(FBK_THREAD_WAIT)
             if self.qControl_write.qsize():
                 command = self.qControl_write.get().encode('ascii') + b' \n'
-                self.s.write(command)
+                try:
+                    self.s.write(command)
+                except:
+                    on_closing()
                 data = self.s.readline().decode('ascii')
                 self.qControl_read.put(data)
-                if (self.debug):
-                    print("Ctrl: ", command, data.replace('\n', ""))
+                self.qLog.put("CTRL: " + str(command) + str(data))
             elif self.qScan_write.qsize():
                 command = self.qScan_write.get().encode('ascii') + b' \n'
                 self.s.write(command)
                 data = self.s.readline().decode('ascii')
                 self.qScan_read.put(data)
-                if (self.debug):
-                    print("Scan: ", command, data.replace('\n', ""))
+                self.qLog.put("SCAN: " + str(command) + str(data))
             elif self.qStatus_write.qsize():
                 command = self.qStatus_write.get().encode('ascii') + b' \n'
                 self.s.write(command)
                 data = self.s.readline().decode('ascii')
                 self.qStatus_read.put(data)
-                if (self.debug):
-                    print("Stat: ", command, data.replace('\n', ""))
+                self.qLog.put("STAT: " + str(command) + str(data))
             elif self.qFBK_write.qsize():
                 command = self.qFBK_write.get().encode('ascii') + b' \n'
                 self.s.write(command)
                 data = self.s.readline().decode('ascii')
                 self.qFBK_read.put(data)
-                if (self.debug):
-                    print("FBK : ", command, data.replace('\n', ""))
+                self.qLog.put("FBK : " + str(command) + str(data))
 
     def stop(self):
         self._is_running = 0
+        print("KILL: Serial")
         try:
             self.s.close()
         except:
@@ -272,13 +285,14 @@ class AxisFrame:
         self.mtr_position = StringVar()
         self.mtr_current = StringVar()
         self.mtr_error = StringVar()
+        self.queue = parameters.queue_name
 
         self.enableButton = Button(self.canvas, text="OFF", fg="black", bg="#d3d3d3", height=2, width=6, padx=3, pady=3,
                                    command=lambda: self.toggle_axis())
-        self.jog_fwd = Button(self.canvas, text=parameters.jogText1, activeforeground="black",
+        self.jog_neg = Button(self.canvas, text=parameters.jogText1, activeforeground="black",
                               activebackground="#00aa00",
                               bg="#00aa00", width=10, state=DISABLED)
-        self.jog_rev = Button(self.canvas, text=parameters.jogText2, activeforeground="black",
+        self.jog_pos = Button(self.canvas, text=parameters.jogText2, activeforeground="black",
                               activebackground="#00aa00",
                               bg="#00aa00", width=10, state=DISABLED)
         self.set_pos = Button(self.canvas, text=" Set ", activeforeground="black", activebackground="#00aa00",
@@ -313,8 +327,8 @@ class AxisFrame:
         # GRID
         self.label_0.grid(row=0, column=0, columnspan=5, sticky=W)
         self.enableButton.grid(row=1, column=0, rowspan=3, padx=15)
-        self.jog_fwd.grid(row=1, column=1, rowspan=2, padx=3)
-        self.jog_rev.grid(row=1, column=2, rowspan=2, padx=3)
+        self.jog_pos.grid(row=1, column=1, rowspan=2, padx=3)
+        self.jog_neg.grid(row=1, column=2, rowspan=2, padx=3)
         self.label_1.grid(row=0, column=3, sticky=S)
         self.label_2.grid(row=0, column=4, sticky=S)
         self.label_3.grid(row=0, column=5, sticky=S)
@@ -328,10 +342,11 @@ class AxisFrame:
         self.inc.grid(row=4, column=5, pady=5)
         self.vel.grid(row=3, column=1, columnspan=2, rowspan=2)
 
-        self.jog_fwd.bind('<ButtonPress-1>', lambda event: self.jog_forward())
-        self.jog_fwd.bind('<ButtonRelease-1>', lambda event: self.stop_jog())
-        self.jog_rev.bind('<ButtonPress-1>', lambda event: self.jog_backward())
-        self.jog_rev.bind('<ButtonRelease-1>', lambda event: self.stop_jog())
+        # Reverse Motion direction is selected in the parameter file for both axis thus functions are switched below
+        self.jog_pos.bind('<ButtonPress-1>', lambda event: self.jog_positive())
+        self.jog_pos.bind('<ButtonRelease-1>', lambda event: self.stop_jog())
+        self.jog_neg.bind('<ButtonPress-1>', lambda event: self.jog_negative())
+        self.jog_neg.bind('<ButtonRelease-1>', lambda event: self.stop_jog())
 
     def toggle_axis(self):
         if (self.state == 0):
@@ -340,35 +355,35 @@ class AxisFrame:
             self.disable_axis()
 
     def enable_axis(self):
-        TIMC.acmd(TIMC.qControl_read, TIMC.qControl_write, "ENABLE " + self.axisName)
-        if ((0b1 & int(TIMC.acmd(TIMC.qControl_read, TIMC.qControl_write, "AXISSTATUS(" + self.axisName + ")"))) == 1):
+        TIMC.acmd(self.queue, "ENABLE " + self.axisName)
+        if ((0b1 & int(TIMC.acmd(self.queue, "AXISSTATUS(" + self.axisName + ")"))) == 1):
             self.state = 1
             self.activate_all_btns()
             if (TIMC.scan.start['state'] == "disabled"):
                 self.inactivate_all_btns()
 
     def disable_axis(self):
-        TIMC.acmd(TIMC.qControl_read, TIMC.qControl_write, "DISABLE " + self.axisName)
-        if ((0b1 & int(TIMC.acmd(TIMC.qControl_read, TIMC.qControl_write, "AXISSTATUS(" + self.axisName + ")"))) == 0):
+        TIMC.acmd(self.queue, "DISABLE " + self.axisName)
+        if ((0b1 & int(TIMC.acmd(self.queue, "AXISSTATUS(" + self.axisName + ")"))) == 0):
             self.enableButton.config(text="OFF", bg="#d3d3d3")
             self.state = 0
             self.inactivate_all_btns()
 
     def inactivate_all_btns(self):
 
-        self.jog_fwd.config(state="disabled")
-        self.jog_rev.config(state="disabled")
+        self.jog_pos.config(state="disabled")
+        self.jog_neg.config(state="disabled")
         self.set_pos.config(state="disabled")
         self.go_to.config(state="disabled")
         self.inc.config(state="disabled")
         self.vel.config(state="disabled")
 
     def activate_all_btns(self):
-        if ((0b1 & int(TIMC.acmd(TIMC.qControl_read, TIMC.qControl_write, "AXISSTATUS(" + self.axisName + ")"))) == 1):
+        if ((0b1 & int(TIMC.acmd(self.queue, "AXISSTATUS(" + self.axisName + ")"))) == 1):
             self.state = 1
             self.enableButton.config(text="ON", bg="#00aa00", state="normal")
-            self.jog_fwd.config(state="active")
-            self.jog_rev.config(state="active")
+            self.jog_pos.config(state="active")
+            self.jog_neg.config(state="active")
             self.set_pos.config(state="active")
             self.go_to.config(state="active")
             self.inc.config(state="active")
@@ -376,39 +391,38 @@ class AxisFrame:
 
     def set_position(self):
         posToSet = str(self.e_setPos.get())
-        TIMC.acmd(TIMC.qControl_read, TIMC.qControl_write, "POSOFFSET SET " + self.axisName + ", " + posToSet)
+        TIMC.acmd(self.queue, "POSOFFSET SET " + self.axisName + ", " + posToSet)
 
     def move_to(self):
         distance = str(self.e_goTo.get())
         if (distance == ""):
             return
         speed = str(self.vel.get())
-        TIMC.acmd(TIMC.qControl_read, TIMC.qControl_write, "MOVEABS " + self.axisName + " " + distance + " F " + speed)
+        TIMC.acmd(self.queue, "MOVEABS " + self.axisName + " " + distance + " F " + speed)
 
     def move_inc(self):
-        TIMC.acmd(TIMC.qControl_read, TIMC.qControl_write, "ABORT " + self.axisName)
+        TIMC.acmd(self.queue, "ABORT " + self.axisName)
         distance = str(self.e_inc.get())
         speed = str(self.vel.get())
-        TIMC.acmd(TIMC.qControl_read, TIMC.qControl_write, "MOVEINC " + self.axisName + " " + distance + " F " + speed)
+        TIMC.acmd(self.queue, "MOVEINC " + self.axisName + " " + distance + " F " + speed)
 
-    def jog_forward(self):
+    def jog_positive(self):
         if (self.state == 1 and self.enableButton['state'] != 'disabled'):
-            TIMC.acmd(TIMC.qControl_read, TIMC.qControl_write, "ABORT " + self.axisName)
+            TIMC.acmd(self.queue, "ABORT " + self.axisName)
             speed = str(self.vel.get())
-            TIMC.acmd(TIMC.qControl_read, TIMC.qControl_write, "FREERUN " + self.axisName + " " + speed)
+            TIMC.acmd(self.queue, "FREERUN " + self.axisName + " " + speed)
 
-    def jog_backward(self):
+    def jog_negative(self):
         if (self.state == 1 and self.enableButton['state'] != 'disabled'):
-            TIMC.acmd(TIMC.qControl_read, TIMC.qControl_write, "ABORT " + self.axisName)
+            TIMC.acmd(self.queue, "ABORT " + self.axisName)
             speed = str(-1 * self.vel.get())
-            TIMC.acmd(TIMC.qControl_read, TIMC.qControl_write, "FREERUN " + self.axisName + " " + speed)
+            TIMC.acmd(self.queue, "FREERUN " + self.axisName + " " + speed)
 
     def stop_jog(self):
         if (TIMC.online):
-            TIMC.acmd(TIMC.qControl_read, TIMC.qControl_write, "FREERUN " + self.axisName + " 0")
+            TIMC.acmd(self.queue, "FREERUN " + self.axisName + " 0")
 
     def updatePosError(self, error):
-        # TODO check this later when in the mockup.
         # Max Error for x1 = 401+61 = 462
         calc_error = int(abs((error / self.max_pos_error)) * 61)
         if (calc_error > 61):
@@ -447,17 +461,18 @@ class ScanFrame:
         self.scanType = IntVar()
         self.scanTimeText = StringVar()
         self.scanTimeText.set("00:00:00")
+        self.queue = parameters.queue_name
 
         # LEFT FRAME WIDGETS
         self.start = Button(topFrame, text="START", activeforeground="black", activebackground="#00aa00",
-                            bg="#00aa00", width=10, command=lambda: start_scan(self))
+                            bg="#00aa00", width=10, command=lambda: self.start_scan())
         self.stop = Button(topFrame, text="STOP", activeforeground="black", activebackground="#00aa00",
-                           bg="#00aa00", width=10, state=DISABLED, command=lambda: stop_scan(self))
+                           bg="#00aa00", width=10, state=DISABLED, command=lambda: self.stop_scan())
         self.pause = Button(topFrame, text="PAUSE", activeforeground="black", activebackground="#00aa00",
-                            bg="#00aa00", width=10, state=DISABLED, command=lambda: pause_scan(self))
+                            bg="#00aa00", width=10, state=DISABLED, command=lambda: self.pause_scan())
         self.resume = Button(topFrame, text="RESUME", activeforeground="black",
                              activebackground="#00aa00", bg="#00aa00", width=10, state=DISABLED,
-                             command=lambda: resume_scan(self))
+                             command=lambda: self.resume_scan())
         self.scanVelocity = Scale(leftFrame, from_=parameters.scanSpeedMin, to=parameters.scanSpeedMax,
                                   orient=HORIZONTAL,
                                   length=150,
@@ -519,107 +534,152 @@ class ScanFrame:
         self.e_indexStop.grid(row=5, column=4)
         self.e_indexSize.grid(row=6, column=4)
 
-        def start_scan(self):
+    def start_scan(self):
+        # Get input from user and store to local variable
+        self.scan_start = float(self.e_scanStart.get())
+        self.scan_stop = float(self.e_scanStop.get())
+        self.index_start = float(self.e_indexStart.get())
+        self.index_stop = float(self.e_indexStop.get())
+        self.index_size = float(self.e_indexSize.get())
+        self.scan_speed = float(self.scanVelocity.get())
+        self.index_speed = float(self.indexVelocity.get())
 
-            # Define inputs
-            scan_start = float(self.e_scanStart.get())
-            scan_stop = float(self.e_scanStop.get())
-            index_start = float(self.e_indexStart.get())
-            index_stop = float(self.e_indexStop.get())
-            index_size = float(self.e_indexSize.get())
-            scan_speed = float(self.scanVelocity.get())
-            index_speed = float(self.indexVelocity.get())
+        # Check user inputs
+        if (self.scan_stop == self.scan_start):
+            messagebox.showinfo("Bad Scan Input", "Scan Stop equals Scan Start")
+            return
+        if (self.index_stop == self.index_start):
+            messagebox.showinfo("Bad Scan Input", "Index Stop equals Index Start")
+            return
+        if (self.index_stop > self.index_start):
+            messagebox.showinfo("Bad Scan Input", "Index Start must be greater than Index Stop")
+            return
+        if ((self.index_stop - self.index_start) % self.index_size > 0.000001):
+            messagebox.showinfo("Bad Scan Input", "Index Size must be a multiple of Index Start - Index Stop")
+            return
+        # Calculate the scan points with the given user input, self.scan_points will be created and initialized
+        self.create_scan_points()
+        self.deactivate_scan_widgets()
+        TIMC.scanhead.inactivate_all_btns()
+        TIMC.pusher.inactivate_all_btns()
 
-            # Check inputs
-            if (scan_stop == scan_start or index_start == index_stop or index_stop > index_start or (
-                    index_stop - index_start) % index_size > 0.000001):
-                print((index_stop - index_start) % index_size)
-                messagebox.showinfo("", "Bad Scan Inputs")
-                return
+        # Prepare the GUI for scanning by disabling/activating appropriate widgets
+        # Modify widgets if inputs are correct
 
-            # Modify widgets if inputs are correct
-            TIMC.scanhead.inactivate_all_btns()
-            TIMC.pusher.inactivate_all_btns()
-            self.start.config(state="disabled")
-            self.stop.config(state="active")
-            self.pause.config(state="active")
-            self.e_scanStart.config(state="disabled")
-            self.e_scanStop.config(state="disabled")
-            self.e_indexStart.config(state="disabled")
-            self.e_indexStop.config(state="disabled")
-            self.e_indexSize.config(state="disabled")
-            self.radio_0.config(state="disabled")
-            self.radio_1.config(state="disabled")
-            self.scanVelocity.config(state="disabled")
-            self.indexVelocity.config(state="disabled")
+        # Create a scan thread
+        self.process_scan = ScanThread(self.scan_points,
+                                       self.scan_speed,
+                                       self.index_speed,
+                                       self.scan_start,
+                                       self.scan_stop,
+                                       self.index_start,
+                                       self.index_stop,
+                                       self.index_size,
+                                       self.queue)
+        self.process_scan.start()
 
-            # Create Scan Points
-            # 0 = bidirectional, 1 unidirectional
+    def stop_scan(self):
+        self.activate_scan_widgets()
+        TIMC.scanhead.activate_all_btns()
+        TIMC.pusher.activate_all_btns()
+        self.process_scan.stop()
 
-            i_var = index_start + index_size
-            s_var = scan_start
-            s_toggle = [scan_start, scan_stop]
-            x = 0  # Toggle variable
+    def pause_scan(self):
+        self.process_scan.pause()
 
-            # Calc number of points for the scan
-            # Uni-directional
-            if (self.scanType.get() == 1):
-                size = int(abs(index_stop - index_start) / index_size * 3 + 3)
+    def resume_scan(self):
+        self.process_scan.resume()
 
-            # Bi-directional
-            elif (self.scanType.get() == 0):
-                size = int(abs(index_stop - index_start) / index_size * 2 + 2)
+    def create_scan_points(self):
+        # Scan type variable: 0 = bidirectional, 1 unidirectional
 
-            w, h = 4, size
-            scan_points = [[0 for x in range(w)] for y in range(h)]
+        # Variables for generating scan points
+        i_var = self.index_start + self.index_size    # Initialize index variable
+        s_var = self.scan_start                  # Initialize scan variable
+        s_toggle = [self.scan_start, self.scan_stop]  # Toggle values for the scan axis scan points
+        x = 0                               # Toggle control variable
 
-            # Calculate position for each point in scan
-            # Uni-directional
-            if (self.scanType.get() == 1):
-                for i in range(0, size):
-                    # Set s_var
-                    if (i % 3 == 1):
-                        s_var = scan_stop
-                    # Increment i_var
-                    elif (i % 3 == 0):
-                        i_var -= index_size
-                    else:
-                        s_var = scan_start
-                    scan_points[i][0] = s_var
-                    scan_points[i][1] = i_var
-                    print(s_var, i_var)
+        # Calculate the number of points in the scan
+        # Uni-directional
+        if (self.scanType.get() == 1):
+            size = int(abs(self.index_stop - self.index_start) / self.index_size * 3 + 3)
 
-            # Bi-directional
-            elif (self.scanType.get() == 0):
-                for i in range(0, size):
-                    # Toggle s_var
-                    if (i % 2):
-                        x = 1 if x == 0 else 0
-                        s_var = s_toggle[x]
-                    # Increment i_var
-                    else:
-                        i_var -= index_size
-                    scan_points[i][0] = s_var
-                    scan_points[i][1] = i_var
-                    print(s_var, i_var)
+        # Bi-directional
+        elif (self.scanType.get() == 0):
+            size = int(abs(self.index_stop - self.index_start) / self.index_size * 2 + 2)
 
-            self.process_scan = ScanThread(scan_points, scan_speed, index_speed, scan_start, scan_stop, index_start,
-                                           index_stop, index_size)
-            self.process_scan.start()
+        # 2D array for scan points [scan][index]
+        w, h = 2, size
+        self.scan_points = [[0 for x in range(w)] for y in range(h)]
 
-        def stop_scan(self):
-            self.process_scan.stop()
+        # Calculate scan points and store to 2D array scan_points
+        # Uni-directional
+        if (self.scanType.get() == 1):
+            for i in range(0, size):
+                # Set s_var
+                if (i % 3 == 1):
+                    s_var = self.scan_stop
+                # Increment i_var
+                elif (i % 3 == 0):
+                    i_var -= self.index_size
+                else:
+                    s_var = self.scan_start
+                self.scan_points[i][0] = s_var
+                self.scan_points[i][1] = i_var
+                #print(s_var,i_var)
+        # Bi-directional
+        elif (self.scanType.get() == 0):
+            for i in range(0, size):
+                # Toggle s_var
+                if (i % 2):
+                    x = 1 if x == 0 else 0
+                    s_var = s_toggle[x]
+                # Increment i_var
+                else:
+                    i_var -= self.index_size
+                self.scan_points[i][0] = s_var
+                self.scan_points[i][1] = i_var
+                #print(s_var, i_var)
 
-        def pause_scan(self):
-            self.process_scan.pause()
+    # At the conclusion of a scan or stopped scan, activate all widgets for scan
+    def activate_scan_widgets(self):
+        # Configure widgets in scan frame
+        self.start.config(state="active")
+        self.stop.config(state="disabled")
+        self.pause.config(state="disabled")
+        self.resume.config(state="disabled")
+        self.e_scanStart.config(state="normal")
+        self.e_scanStop.config(state="normal")
+        self.e_indexStart.config(state="normal")
+        self.e_indexStop.config(state="normal")
+        self.e_indexSize.config(state="normal")
+        self.radio_0.config(state="normal")
+        self.radio_1.config(state="normal")
+        self.scanVelocity.config(state="normal")
+        self.indexVelocity.config(state="normal")
+        self.scanTimeText.set("00:00:00")
+        time.sleep(0.25)
+        TIMC.acmd(self.queue, "ABORT SCANHEAD")
+        TIMC.acmd(self.queue, "ABORT PUSHER")
 
-        def resume_scan(self):
-            self.process_scan.resume()
-
+    # Prepares scan window widgets for scan by disabling all inputs
+    def deactivate_scan_widgets(self):
+        self.start.config(state="disabled")
+        self.stop.config(state="active")
+        self.pause.config(state="active")
+        self.e_scanStart.config(state="disabled")
+        self.e_scanStop.config(state="disabled")
+        self.e_indexStart.config(state="disabled")
+        self.e_indexStop.config(state="disabled")
+        self.e_indexSize.config(state="disabled")
+        self.radio_0.config(state="disabled")
+        self.radio_1.config(state="disabled")
+        self.scanVelocity.config(state="disabled")
+        self.indexVelocity.config(state="disabled")
 
 class ScanThread(threading.Thread):
     def __init__(self, scan_points, scan_speed, index_speed, scan_start, scan_stop, index_start, index_stop,
-                 index_size):
+                 index_size, queue):
         threading.Thread.__init__(self)
         self._is_running = 1
         self._is_paused = 0
@@ -631,6 +691,7 @@ class ScanThread(threading.Thread):
         self.index_start = index_start
         self.index_stop = index_stop
         self.index_size = index_size
+        self.queue = queue
         self.i = 0
 
         self.scanhead_moved = 0
@@ -644,40 +705,43 @@ class ScanThread(threading.Thread):
         self.avg_pusher_move_time = abs(index_size / index_speed)
         self.last_update_time = time.time()
 
+        self.setDaemon(False)
+
     def run(self):
+        print("Just started Scan Thread: \n", threading.enumerate())
         while (self._is_running):
             time.sleep(SCAN_THREAD_WAIT)
 
-            if ((time.time() - self.last_update_time) > 1 and self.i != 0):
+            if ((time.time() - self.last_update_time) > 1 and self.i != 0 and self.i < len(self.scan_points)):
                 self.calc_rem_scan_time()
 
-            scan_status = int(TIMC.acmd(TIMC.qScan_read, TIMC.qScan_write, "AXISSTATUS(SCANHEAD)"))
+            scan_status = int(TIMC.acmd(self.queue, "AXISSTATUS(SCANHEAD)"))
             scan_enabled = 0b1 & scan_status
             scan_in_pos = 0b100 & scan_status
 
             # Limit the number of calls to the controller by checking scanhead axis first
             if (scan_enabled and scan_in_pos and self._is_paused != 1):
                 # If scanhead is in position and not faulted, check the same for the pusher
-                index_status = int(TIMC.acmd(TIMC.qScan_read, TIMC.qScan_write, "AXISSTATUS(PUSHER)"))
+                index_status = int(TIMC.acmd(self.queue, "AXISSTATUS(PUSHER)"))
                 index_enabled = 0b1 & index_status
                 index_in_pos = 0b100 & index_status
                 if (index_enabled and index_in_pos and self._is_paused != 1):
-                    if self.i < (len(self.scan_points) - 1):
+                    if self.i < (len(self.scan_points)):
                         # Command scanhead to move to next scan point
-                        TIMC.acmd(TIMC.qScan_read, TIMC.qScan_write,
+                        TIMC.acmd(self.queue,
                                   "MOVEABS SCANHEAD " + str(self.scan_points[self.i][0]) + " F " + str(
                                       self.scan_speed))
                         # Check if scanhead is in position despite being told to move to the next scan point.
-                        scan_status = int(TIMC.acmd(TIMC.qScan_read, TIMC.qScan_write, "AXISSTATUS(SCANHEAD)"))
+                        scan_status = int(TIMC.acmd(self.queue, "AXISSTATUS(SCANHEAD)"))
                         scan_enabled = 0b1 & scan_status
                         scan_in_pos = 0b100 & scan_status
                         if (scan_enabled and scan_in_pos and self._is_paused != 1):
                             # Command pusher to move to next scan point
-                            TIMC.acmd(TIMC.qScan_read, TIMC.qScan_write,
+                            TIMC.acmd(self.queue,
                                       "MOVEABS PUSHER " + str(self.scan_points[self.i][1]) + " F " + str(
                                           self.index_speed))
                             # Check if pusher is in position despite being told to move to the next scan point.
-                            index_status = int(TIMC.acmd(TIMC.qScan_read, TIMC.qScan_write, "AXISSTATUS(PUSHER)"))
+                            index_status = int(TIMC.acmd(self.queue, "AXISSTATUS(PUSHER)"))
                             index_enabled = 0b1 & index_status
                             index_in_pos = 0b100 & index_status
                             if (index_enabled and index_in_pos and self._is_paused != 1):
@@ -714,31 +778,16 @@ class ScanThread(threading.Thread):
                 self.pause()
 
     def stop(self):
-        self._is_running = 0
+        print("KILL: Scan")
+        TIMC.scan.activate_scan_widgets()
         TIMC.scanhead.activate_all_btns()
         TIMC.pusher.activate_all_btns()
-        TIMC.scan.start.config(state="active")
-        TIMC.scan.stop.config(state="disabled")
-        TIMC.scan.pause.config(state="disabled")
-        TIMC.scan.resume.config(state="disabled")
-        TIMC.scan.e_scanStart.config(state="normal")
-        TIMC.scan.e_scanStop.config(state="normal")
-        TIMC.scan.e_indexStart.config(state="normal")
-        TIMC.scan.e_indexStop.config(state="normal")
-        TIMC.scan.e_indexSize.config(state="normal")
-        TIMC.scan.radio_0.config(state="normal")
-        TIMC.scan.radio_1.config(state="normal")
-        TIMC.scan.scanVelocity.config(state="normal")
-        TIMC.scan.indexVelocity.config(state="normal")
-        TIMC.scan.scanTimeText.set("00:00:00")
-        time.sleep(0.25)
-        TIMC.acmd(TIMC.qScan_read, TIMC.qScan_write, "ABORT SCANHEAD")
-        TIMC.acmd(TIMC.qScan_read, TIMC.qScan_write, "ABORT PUSHER")
+        self._is_running = 0
 
     def pause(self):
         self._is_paused = 1
-        TIMC.acmd(TIMC.qScan_read, TIMC.qScan_write, "ABORT SCANHEAD")
-        TIMC.acmd(TIMC.qScan_read, TIMC.qScan_write, "ABORT PUSHER")
+        TIMC.acmd(self.queue, "ABORT SCANHEAD")
+        TIMC.acmd(self.queue, "ABORT PUSHER")
         TIMC.scan.pause.config(state="disabled")
         TIMC.scan.resume.config(state="active")
         self.movement_elapsed_time = time.time() - self.movement_start_time
@@ -750,11 +799,9 @@ class ScanThread(threading.Thread):
         self.movement_start_time = time.time()
 
     def calc_rem_scan_time(self):
-        # scanhead_pos = float(TIMC.scanhead.mtr_position.get())
-        # pusher_pos = float(TIMC.pusher.mtr_position.get())
 
-        scanhead_pos = float(TIMC.acmd(TIMC.qScan_read, TIMC.qScan_write, "PFBKPROG(SCANHEAD)"))
-        pusher_pos = float(TIMC.acmd(TIMC.qScan_read, TIMC.qScan_write, "PFBKPROG(PUSHER)"))
+        scanhead_pos = float(TIMC.acmd(self.queue, "PFBKPROG(SCANHEAD)"))
+        pusher_pos = float(TIMC.acmd(self.queue, "PFBKPROG(PUSHER)"))
         scan_time = 0
 
         # Determine which axis is moving
@@ -766,7 +813,8 @@ class ScanThread(threading.Thread):
         elif (self.pusher_moving and self.scanhead_moving == 0):
             scan_time = abs(pusher_pos - self.scan_points[self.i][1]) / self.index_speed
         # If not on the last move, then calculate remaining scan time
-        for i in range(self.i + 1, len(self.scan_points) - 1):
+        for i in range(self.i+1, len(self.scan_points)):
+            print(self.i," Extra")
             scanhead_move = abs(self.scan_points[i][0] - self.scan_points[i - 1][0])
             pusher_move = abs(self.scan_points[i][1] - self.scan_points[i - 1][1])
             if (scanhead_move and pusher_move == 0):
@@ -798,7 +846,6 @@ class FaultFrame():
         self.entry.grid(row=1, column=0, columnspan=2, padx=30)
         self.button.grid(row=1, column=2, pady=5, padx=5)
 
-    # TODO: This is glitchy when a fault occurs
     def update_status(self, text):
         self.canvas.config(bg="red")
         self.label_0.config(bg="red")
@@ -806,80 +853,80 @@ class FaultFrame():
 
     def fault_ack(self):
         if (TIMC.online):
-            TIMC.acmd(TIMC.qControl_read, TIMC.qControl_write, "ACKNOWLEDGEALL")
-            color = root.cget("bg")
-            print("color ", color)
-            self.canvas.config(bg=color)
-            self.label_0.config(bg=color)
+            TIMC.acmd("CTRL", "ACKNOWLEDGEALL")
+            self.canvas.config(bg="SystemButtonFace")
+            self.label_0.config(bg="SystemButtonFace")
             self.status_text.set("")
 
-# TODO: need to turn this into a thread
-def check_faults():
-    fault_array = ["PositionError Fault",  # 0
-                   "OverCurrent Fault",  # 1
-                   "CW/Positive End-of-Travel Limit Fault",  # 2
-                   "CCW/Negative End-of-Travel Limit Fault",  # 3
-                   "CW/High Software Limit Fault",  # 4
-                   "CCW/Low Software Limit Fault",  # 5
-                   "Amplifier Fault",  # 6
-                   "Position Feedback Fault",  # 7
-                   "Velocity Feedback Fault",  # 8
-                   "Hall Sensor Fault",  # 9
-                   "Maximum Velocity Command Fault",  # 10
-                   "Emergency Stop Fault",  # 11
-                   "Velocity Error Fault",  # 12
-                   "N/A",  # 13
-                   "N/A",  # 14
-                   "External Fault",  # 15
-                   "N/A",  # 16
-                   "Motor Temperature Fault",  # 17
-                   "Amplifier Temperature Fault",  # 18
-                   "Encoder Fault",  # 19
-                   "Communication Lost Fault",  # 20
-                   "N/A",  # 21
-                   "N/A",  # 22
-                   "Feedback Scaling Fault",  # 23
-                   "Marker Search Fault",  # 24
-                   "N/A",  # 25
-                   "N/A",  # 26
-                   "Voltage Clamp Fault",  # 27
-                   "Power Supply Fault"  # 28
-                   ]
 
-    s_fault = int(TIMC.acmd(TIMC.qStatus_read, TIMC.qStatus_write, "AXISFAULT (SCANHEAD)"))
-    p_fault = int(TIMC.acmd(TIMC.qStatus_read, TIMC.qStatus_write, "AXISFAULT (PUSHER)"))
+class UpdateStatus(threading.Thread):
 
-    # If ESTOP fault, else check all other
-    if (0b100000000000 & s_fault or 0b100000000000 & p_fault):
-        TIMC.scanhead.disable_axis()
-        TIMC.pusher.disable_axis()
-        TIMC.fault.update_status("ESTOP")
-    else:
-        faultMask = 1
-        if (s_fault != 0):
-            TIMC.scanhead.disable_axis()
-            for i in range(0, len(fault_array)):
-                if ((s_fault & (faultMask << i)) != 0):
-                    TIMC.fault.update_status("FAULT: Scanhead " + str(fault_array[i]))
+    def __init__(self):
+        threading.Thread.__init__(self)
+        self._is_running = 1
+        self.fault_array = ["PositionError Fault",  # 0
+                            "OverCurrent Fault",  # 1
+                            "CW/Positive End-of-Travel Limit Fault",  # 2
+                            "CCW/Negative End-of-Travel Limit Fault",  # 3
+                            "CW/High Software Limit Fault",  # 4
+                            "CCW/Low Software Limit Fault",  # 5
+                            "Amplifier Fault",  # 6
+                            "Position Feedback Fault",  # 7
+                            "Velocity Feedback Fault",  # 8
+                            "Hall Sensor Fault",  # 9
+                            "Maximum Velocity Command Fault",  # 10
+                            "Emergency Stop Fault",  # 11
+                            "Velocity Error Fault",  # 12
+                            "N/A",  # 13
+                            "N/A",  # 14
+                            "External Fault",  # 15
+                            "N/A",  # 16
+                            "Motor Temperature Fault",  # 17
+                            "Amplifier Temperature Fault",  # 18
+                            "Encoder Fault",  # 19
+                            "Communication Lost Fault",  # 20
+                            "N/A",  # 21
+                            "N/A",  # 22
+                            "Feedback Scaling Fault",  # 23
+                            "Marker Search Fault",  # 24
+                            "N/A",  # 25
+                            "N/A",  # 26
+                            "Voltage Clamp Fault",  # 27
+                            "Power Supply Fault"  # 28
+                            ]
+        self.setDaemon(False)
 
-        if (p_fault != 0):
-            TIMC.pusher.disable_axis()
-            for i in range(0, len(fault_array)):
-                if ((p_fault & (faultMask << i)) != 0):
-                    TIMC.fault.update_status("FAULT: Pusher " + str(fault_array[i]))
+    def run(self):
+        print("Just started Status Thread: \n", threading.enumerate())
+        while(self._is_running):
+            # Spread out the calls to status
+            s_fault = int(TIMC.acmd("STATUS", "AXISFAULT (SCANHEAD)"))
+            p_fault = int(TIMC.acmd("STATUS", "AXISFAULT (PUSHER)"))
 
-    root.after(750, check_faults)
+            # If ESTOP fault, else check all other
+            if (0b100000000000 & s_fault or 0b100000000000 & p_fault):
+                TIMC.scanhead.disable_axis()
+                TIMC.pusher.disable_axis()
+                TIMC.fault.update_status("ESTOP was pressed")
+            else:
+                faultMask = 1
+                if (s_fault != 0):
+                    TIMC.scanhead.disable_axis()
+                    for i in range(0, len(self.fault_array)):
+                        if ((s_fault & (faultMask << i)) != 0):
+                            TIMC.fault.update_status("FAULT: Scanhead " + str(self.fault_array[i]))
 
-def on_closing():
-    if(TIMC.online):
-        TIMC.scanhead.disable_axis()
-        TIMC.pusher.disable_axis()
-        process_feedback.stop()
-        TIMC.process_serial.stop()
-    print(threading.enumerate())
-    root.destroy()
+                if (p_fault != 0):
+                    TIMC.pusher.disable_axis()
+                    for i in range(0, len(self.fault_array)):
+                        if ((p_fault & (faultMask << i)) != 0):
+                            TIMC.fault.update_status("FAULT: Pusher " + str(self.fault_array[i]))
+            time.sleep(1)
+    def stop(self):
+        print("KILL: Status")
+        self._is_running = 0
 
-
+# Update the feedback on the GUI
 class UpdateFeedback(threading.Thread):
 
     def __init__(self):
@@ -887,10 +934,12 @@ class UpdateFeedback(threading.Thread):
         self._is_running = 1
         self.write_index = 0
         self.read_index = 0
-        self.write_cmd = ["PFBKPROG(SCANHEAD)", "IFBK(SCANHEAD)", "PERR(SCANHEAD)", "PFBKPROG(PUSHER)", "IFBK(PUSHER)",
+        self.write_cmd = ["PFBKPROG(SCANHEAD)", "IFBK(SCANHEAD)", "PERR(SCANHEAD)", "PFBKPROG (PUSHER)", "IFBK(PUSHER)",
                           "PERR(PUSHER)"]
+        self.setDaemon(False)
 
     def run(self):
+        print("Just started FBK Thread: \n", threading.enumerate())
         while (self._is_running):
             time.sleep(FBK_THREAD_WAIT)
             if (TIMC.qFBK_write.qsize() == 0):
@@ -934,25 +983,165 @@ class UpdateFeedback(threading.Thread):
                     err = float(err)
                     TIMC.pusher.updatePosError(err)
                     self.read_index = 0
+                else:
+                    print("HERE")
 
     def stop(self):
+        print("KILL: FBK")
         self._is_running = 0
 
+class UpdateLog(threading.Thread):
+
+    def __init__(self, queue):
+        threading.Thread.__init__(self)
+        self._is_running = 1
+        self.queue = queue
+        self.estop_flag = 0
+        self.fault_array = ["PositionError Fault",  # 0
+                            "OverCurrent Fault",  # 1
+                            "CW/Positive End-of-Travel Limit Fault",  # 2
+                            "CCW/Negative End-of-Travel Limit Fault",  # 3
+                            "CW/High Software Limit Fault",  # 4
+                            "CCW/Low Software Limit Fault",  # 5
+                            "Amplifier Fault",  # 6
+                            "Position Feedback Fault",  # 7
+                            "Velocity Feedback Fault",  # 8
+                            "Hall Sensor Fault",  # 9
+                            "Maximum Velocity Command Fault",  # 10
+                            "Emergency Stop Fault",  # 11
+                            "Velocity Error Fault",  # 12
+                            "N/A",  # 13
+                            "N/A",  # 14
+                            "External Fault",  # 15
+                            "N/A",  # 16
+                            "Motor Temperature Fault",  # 17
+                            "Amplifier Temperature Fault",  # 18
+                            "Encoder Fault",  # 19
+                            "Communication Lost Fault",  # 20
+                            "N/A",  # 21
+                            "N/A",  # 22
+                            "Feedback Scaling Fault",  # 23
+                            "Marker Search Fault",  # 24
+                            "N/A",  # 25
+                            "N/A",  # 26
+                            "Voltage Clamp Fault",  # 27
+                            "Power Supply Fault"  # 28
+                            ]
+
+        self.setDaemon(False)
+    def run(self):
+        print("Just started Log Thread: \n", threading.enumerate())
+
+        while(self._is_running):
+            time.sleep(FBK_THREAD_WAIT)
+            if (self.queue.qsize()):
+                data = self.queue.get()
+                data = data.replace("b'","")
+                data = data.replace("\n", "")
+                data = data.replace("\\n","")
+                data = data.replace("%", "")
+                data = data.replace("'","")
+                # Eliminate all results from feedback
+                if("FBK" not in data):
+                    # Stat
+                    if("STAT:" in data):
+                        data = data.replace("STAT:", "")
+                        if("SCANHEAD" in data):
+                            data = int(data.replace("AXISFAULT (SCANHEAD)", ""))
+                            if (data and not  self.estop_flag):
+                                for i in range(0, len(self.fault_array)):
+                                    faultMask = 1
+                                    if ((data & (faultMask << i)) != 0):
+                                        if(i == 11):
+                                            self.estop_flag = 1
+                                            print("ESTOP Pressed")
+                                        else:
+                                            print("FAULT: Scanhead " + str(self.fault_array[i]))
+
+                        elif("PUSHER" in data):
+                            data = int(data.replace("AXISFAULT (PUSHER)", ""))
+                            if (data and not  self.estop_flag):
+                                faultMask = 1
+                                for i in range(0, len(self.fault_array)):
+                                    if ((data & (faultMask << i)) != 0):
+                                        if (i == 11):
+                                            self.estop_flag = 1
+                                            print("ESTOP Pressed")
+                                        else:
+                                            print("FAULT: Scanhead " + str(self.fault_array[i]))
+                    elif("CTRL:" in data and not "STATUS" in data):
+                        if("ACKNOWLEDGEALL" in data):
+                            self.estop_flag = 0
+                        print(data)
+                    else:
+                        print("Junk: ",data)
+
+    def stop(self):
+        print("KILL: LOG")
+        self._is_running = 0
+
+def on_closing():
+    exception_flag = 0
+    if(TIMC.online):
+        try:
+            TIMC.scanhead.disable_axis()
+        except:
+            exception_flag = 1
+        try:
+            TIMC.pusher.disable_axis()
+            time.sleep(.25)
+        except:
+            exception_flag = 1
+        try:
+            process_feedback.stop()
+        except:
+            exception_flag = 1
+        try:
+            process_status.stop()
+        except:
+            exception_flag = 1
+        try:
+            process_log.stop()
+        except:
+            exception_flag = 1
+        try:
+            time.sleep(.25)
+            TIMC.process_serial.stop()
+            time.sleep(0.75)
+        except:
+            exception_flag = 1
+    if(exception_flag):
+        print("Error closing")
+    root.destroy()
+
+def print_queue_sizes():
+    print("FBK_r:", TIMC.qFBK_read.qsize(), " qFBK_w:", TIMC.qFBK_write.qsize(), " qStatus_r:",
+          TIMC.qStatus_read.qsize(), " qStatus_w:", TIMC.qStatus_write.qsize(), " qScan_r:", TIMC.qScan_read.qsize(),
+          " qScan_w:",
+          TIMC.qScan_write.qsize(), " qControl_r", TIMC.qControl_read.qsize(), " qControl_w",
+          TIMC.qControl_write.qsize(), " qLog:", TIMC.qLog.qsize())
 
 ######################################
 #             Main Code              #
 ######################################
 
 root = Tk()
+print("Just started the program: \n", threading.enumerate())
 TIMC = MainWindow(root, SetupMainWindow())
 
 if (TIMC.online):
-    print(threading.enumerate())
+    # Start thread to updated position, current and error feedback for each axis
     process_feedback = UpdateFeedback()
     process_feedback.start()
+    # Start thread to monitor for ESTOP and faults etc.
+    process_status = UpdateStatus()
+    process_status.start()
+    # Start thread for generating log file
+    process_log = UpdateLog(TIMC.qLog)
+    process_log.start()
+    # If axis are enabled at startup, disabled them
     TIMC.scanhead.disable_axis()
     TIMC.pusher.disable_axis()
-    root.after(1000, check_faults)
 
     TIMC.scan.e_scanStart.insert(END, "0")
     TIMC.scan.e_scanStop.insert(END, "20")
