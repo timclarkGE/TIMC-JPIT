@@ -196,7 +196,6 @@ class SerialThread(threading.Thread):
         self.port_open = 0
         self.baud = baud
 
-        self.setDaemon(False)
 
     def run(self):
 
@@ -226,8 +225,6 @@ class SerialThread(threading.Thread):
             self._is_running = 0
         else:
             self._is_running = 0
-
-        print("Just started Serial Thread: \n", threading.enumerate())
 
         # Thread main loop
         while self._is_running:
@@ -263,7 +260,6 @@ class SerialThread(threading.Thread):
 
     def stop(self):
         self._is_running = 0
-        print("KILL: Serial")
         try:
             self.s.close()
         except:
@@ -327,8 +323,8 @@ class AxisFrame:
         # GRID
         self.label_0.grid(row=0, column=0, columnspan=5, sticky=W)
         self.enableButton.grid(row=1, column=0, rowspan=3, padx=15)
-        self.jog_pos.grid(row=1, column=1, rowspan=2, padx=3)
-        self.jog_neg.grid(row=1, column=2, rowspan=2, padx=3)
+        self.jog_neg.grid(row=1, column=1, rowspan=2, padx=3)
+        self.jog_pos.grid(row=1, column=2, rowspan=2, padx=3)
         self.label_1.grid(row=0, column=3, sticky=S)
         self.label_2.grid(row=0, column=4, sticky=S)
         self.label_3.grid(row=0, column=5, sticky=S)
@@ -705,10 +701,9 @@ class ScanThread(threading.Thread):
         self.avg_pusher_move_time = abs(index_size / index_speed)
         self.last_update_time = time.time()
 
-        self.setDaemon(False)
+
 
     def run(self):
-        print("Just started Scan Thread: \n", threading.enumerate())
         while (self._is_running):
             time.sleep(SCAN_THREAD_WAIT)
 
@@ -778,7 +773,6 @@ class ScanThread(threading.Thread):
                 self.pause()
 
     def stop(self):
-        print("KILL: Scan")
         TIMC.scan.activate_scan_widgets()
         TIMC.scanhead.activate_all_btns()
         TIMC.pusher.activate_all_btns()
@@ -814,7 +808,6 @@ class ScanThread(threading.Thread):
             scan_time = abs(pusher_pos - self.scan_points[self.i][1]) / self.index_speed
         # If not on the last move, then calculate remaining scan time
         for i in range(self.i+1, len(self.scan_points)):
-            print(self.i," Extra")
             scanhead_move = abs(self.scan_points[i][0] - self.scan_points[i - 1][0])
             pusher_move = abs(self.scan_points[i][1] - self.scan_points[i - 1][1])
             if (scanhead_move and pusher_move == 0):
@@ -894,10 +887,8 @@ class UpdateStatus(threading.Thread):
                             "Voltage Clamp Fault",  # 27
                             "Power Supply Fault"  # 28
                             ]
-        self.setDaemon(False)
 
     def run(self):
-        print("Just started Status Thread: \n", threading.enumerate())
         while(self._is_running):
             # Spread out the calls to status
             s_fault = int(TIMC.acmd("STATUS", "AXISFAULT (SCANHEAD)"))
@@ -923,7 +914,6 @@ class UpdateStatus(threading.Thread):
                             TIMC.fault.update_status("FAULT: Pusher " + str(self.fault_array[i]))
             time.sleep(1)
     def stop(self):
-        print("KILL: Status")
         self._is_running = 0
 
 # Update the feedback on the GUI
@@ -931,23 +921,17 @@ class UpdateFeedback(threading.Thread):
 
     def __init__(self):
         threading.Thread.__init__(self)
+        self.setDaemon(True)
         self._is_running = 1
         self.write_index = 0
         self.read_index = 0
         self.write_cmd = ["PFBKPROG(SCANHEAD)", "IFBK(SCANHEAD)", "PERR(SCANHEAD)", "PFBKPROG (PUSHER)", "IFBK(PUSHER)",
                           "PERR(PUSHER)"]
-        self.setDaemon(False)
+
 
     def run(self):
-        print("Just started FBK Thread: \n", threading.enumerate())
         while (self._is_running):
             time.sleep(FBK_THREAD_WAIT)
-            if (TIMC.qFBK_write.qsize() == 0):
-                TIMC.qFBK_write.put(self.write_cmd[self.write_index])
-                if (self.write_index < 5):
-                    self.write_index += 1
-                else:
-                    self.write_index = 0
             # If there is something in the read queue, update the correct variable
             if (TIMC.qFBK_read.qsize()):
 
@@ -985,9 +969,13 @@ class UpdateFeedback(threading.Thread):
                     self.read_index = 0
                 else:
                     print("HERE")
-
+            if (TIMC.qFBK_write.qsize() == 0):
+                TIMC.qFBK_write.put(self.write_cmd[self.write_index])
+                if (self.write_index < 5):
+                    self.write_index += 1
+                else:
+                    self.write_index = 0
     def stop(self):
-        print("KILL: FBK")
         self._is_running = 0
 
 class UpdateLog(threading.Thread):
@@ -1028,10 +1016,8 @@ class UpdateLog(threading.Thread):
                             "Power Supply Fault"  # 28
                             ]
 
-        self.setDaemon(False)
-    def run(self):
-        print("Just started Log Thread: \n", threading.enumerate())
 
+    def run(self):
         while(self._is_running):
             time.sleep(FBK_THREAD_WAIT)
             if (self.queue.qsize()):
@@ -1073,11 +1059,10 @@ class UpdateLog(threading.Thread):
                         if("ACKNOWLEDGEALL" in data):
                             self.estop_flag = 0
                         print(data)
-                    else:
-                        print("Junk: ",data)
+                    #else:
+                        #print("Junk: ",data)
 
     def stop(self):
-        print("KILL: LOG")
         self._is_running = 0
 
 def on_closing():
@@ -1089,11 +1074,6 @@ def on_closing():
             exception_flag = 1
         try:
             TIMC.pusher.disable_axis()
-            time.sleep(.25)
-        except:
-            exception_flag = 1
-        try:
-            process_feedback.stop()
         except:
             exception_flag = 1
         try:
@@ -1105,13 +1085,15 @@ def on_closing():
         except:
             exception_flag = 1
         try:
-            time.sleep(.25)
+            process_feedback.stop()
+        except:
+            exception_flag = 1
+        try:
             TIMC.process_serial.stop()
-            time.sleep(0.75)
         except:
             exception_flag = 1
     if(exception_flag):
-        print("Error closing")
+        print("ERROR CLOSING A THREAD")
     root.destroy()
 
 def print_queue_sizes():
@@ -1126,19 +1108,21 @@ def print_queue_sizes():
 ######################################
 
 root = Tk()
-print("Just started the program: \n", threading.enumerate())
 TIMC = MainWindow(root, SetupMainWindow())
 
 if (TIMC.online):
     # Start thread to updated position, current and error feedback for each axis
     process_feedback = UpdateFeedback()
     process_feedback.start()
+
     # Start thread to monitor for ESTOP and faults etc.
     process_status = UpdateStatus()
     process_status.start()
+
     # Start thread for generating log file
     process_log = UpdateLog(TIMC.qLog)
     process_log.start()
+
     # If axis are enabled at startup, disabled them
     TIMC.scanhead.disable_axis()
     TIMC.pusher.disable_axis()

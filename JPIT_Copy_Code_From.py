@@ -20,6 +20,7 @@
 
 from tkinter import *
 from tkinter import messagebox
+import time
 #from f_printHeader import printHeader
 #from f_openSerial import openSerial
 #from f_isAlive import isAlive
