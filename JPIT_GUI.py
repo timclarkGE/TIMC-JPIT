@@ -37,6 +37,8 @@ import serial
 import threading
 import queue
 import time
+import platform
+import sys
 
 FBK_THREAD_WAIT = 0.0001
 SCAN_THREAD_WAIT = 0.25
@@ -105,12 +107,13 @@ class MainWindow:
         self.qScan_write = queue.Queue()
         self.qControl_read = queue.Queue()
         self.qControl_write = queue.Queue()
-        self.qLog = queue.Queue()
+        self.qLog_write1 = queue.Queue() # This queue is for all commands that get copied to the log queue
+        self.qLog_write2 = queue.Queue() # This is just for pause and resume log entries
 
         # Start serial threads
         self.process_serial = SerialThread(self.baud, self.qControl_read, self.qControl_write, self.qScan_read,
                                            self.qScan_write, self.qStatus_read, self.qStatus_write, self.qFBK_read,
-                                           self.qFBK_write, self.qLog)
+                                           self.qFBK_write, self.qLog_write1, self.qLog_write2)
         self.process_serial.start()
         # Wait for serial thread to establish communication
         time.sleep(0.5)
@@ -132,38 +135,45 @@ class MainWindow:
     # Main method for sending commands to TIMC
     def acmd(self, queue_name, text):
 
-        # There are four read/write queues
-        if (queue_name == "CTRL"):
-            write_queue = self.qControl_write
-            read_queue = self.qControl_read
-        elif( queue_name == "SCAN"):
-            write_queue = self.qScan_write
-            read_queue = self.qScan_read
-        elif(queue_name == "STATUS"):
-            write_queue = self.qStatus_write
-            read_queue = self.qStatus_read
-        elif(queue_name == "FBK"):
-            write_queue = self.qFBK_write
-            read_queue = self.qFBK_read
+        if (queue_name != "LOG"):
+            # There are four read/write queues
+            if (queue_name == "CTRL"):
+                write_queue = self.qControl_write
+                read_queue = self.qControl_read
+            elif( queue_name == "SCAN"):
+                write_queue = self.qScan_write
+                read_queue = self.qScan_read
+            elif(queue_name == "STATUS"):
+                write_queue = self.qStatus_write
+                read_queue = self.qStatus_read
+            elif(queue_name == "FBK"):
+                write_queue = self.qFBK_write
+                read_queue = self.qFBK_read
 
-        write_queue.put(text)
-        data = read_queue.get()
+            # This code is for all queues except "LOG"
+            write_queue.put(text)
+            data = read_queue.get()
 
-        if "!" in data:
-            print("(!) Bad Execution")
-            return 0
-        elif "#" in data:
-            print("(#) ACK but cannot execute")
-            return 0
-        elif "$" in data:
-            print("($) CMD timeout")
-            return 0
-        elif data == "":
-            print("No data returned, check serial connection")
-            return 0
+            if "!" in data:
+                print("(!) Bad Execution")
+                return 0
+            elif "#" in data:
+                print("(#) ACK but cannot execute")
+                return 0
+            elif "$" in data:
+                print("($) CMD timeout")
+                return 0
+            elif data == "":
+                print("No data returned, check serial connection")
+                return 0
+            elif "%" in data:
+                data = data.replace("%", "")
+                return data
+            else:
+                print("Error")
+        # This is only for pause and resume entries in the log book
         else:
-            data = data.replace("%", "")
-            return data
+            self.qLog_write2.put(text)
 
     def init_communication(self):
         if (self.process_serial.port_open == 0):
@@ -180,7 +190,7 @@ class MainWindow:
 class SerialThread(threading.Thread):
 
     def __init__(self, baud, qControl_read, qControl_write, qScan_read, qScan_write, qStatus_read, qStatus_write,
-                 qFBK_read, qFBK_write, qLog):
+                 qFBK_read, qFBK_write, qLog_write1, qLog_write2):
         threading.Thread.__init__(self)
         self.qControl_read = qControl_read
         self.qControl_write = qControl_write
@@ -190,7 +200,8 @@ class SerialThread(threading.Thread):
         self.qStatus_write = qStatus_write
         self.qFBK_read = qFBK_read
         self.qFBK_write = qFBK_write
-        self.qLog = qLog
+        self.qLog_write1 = qLog_write1
+        self.qLog_write2 = qLog_write2
 
         self._is_running = 1
         self.port_open = 0
@@ -229,6 +240,11 @@ class SerialThread(threading.Thread):
         # Thread main loop
         while self._is_running:
             # Check data in queue with queue priority being: qControl, qScan, qStatus, qFBK_write, qFBK_read, qLog
+            #print(self.qFBK_read.qsize(), " ", self.qFBK_write.qsize(), " ",
+            #      self.qStatus_read.qsize(), " ", self.qStatus_write.qsize(), " ", self.qScan_read.qsize(),
+            #      " ",
+            #      self.qScan_write.qsize(), " ", self.qControl_read.qsize(), " ",
+            #      self.qControl_write.qsize(), " ", self.qLog.qsize())
             time.sleep(FBK_THREAD_WAIT)
             if self.qControl_write.qsize():
                 command = self.qControl_write.get().encode('ascii') + b' \n'
@@ -238,25 +254,30 @@ class SerialThread(threading.Thread):
                     on_closing()
                 data = self.s.readline().decode('ascii')
                 self.qControl_read.put(data)
-                self.qLog.put("CTRL: " + str(command) + str(data))
+                self.qLog_write1.put("CTRL: " + str(command) + str(data))
             elif self.qScan_write.qsize():
                 command = self.qScan_write.get().encode('ascii') + b' \n'
                 self.s.write(command)
                 data = self.s.readline().decode('ascii')
                 self.qScan_read.put(data)
-                self.qLog.put("SCAN: " + str(command) + str(data))
+                self.qLog_write1.put("SCAN: " + str(command) + str(data))
             elif self.qStatus_write.qsize():
                 command = self.qStatus_write.get().encode('ascii') + b' \n'
                 self.s.write(command)
                 data = self.s.readline().decode('ascii')
                 self.qStatus_read.put(data)
-                self.qLog.put("STAT: " + str(command) + str(data))
+                self.qLog_write1.put("STAT: " + str(command) + str(data))
+            elif self.qLog_write2.qsize():
+                # Scan start/stop/pause/resume has happened, read from the second write queue and put in the main log write queue
+                log_entry = self.qLog_write2.get()
+                self.qLog_write1.put(log_entry)
             elif self.qFBK_write.qsize():
                 command = self.qFBK_write.get().encode('ascii') + b' \n'
                 self.s.write(command)
                 data = self.s.readline().decode('ascii')
                 self.qFBK_read.put(data)
-                self.qLog.put("FBK : " + str(command) + str(data))
+                self.qLog_write1.put("FBK : " + str(command) + str(data))
+
 
     def stop(self):
         self._is_running = 0
@@ -344,6 +365,9 @@ class AxisFrame:
         self.jog_neg.bind('<ButtonPress-1>', lambda event: self.jog_negative())
         self.jog_neg.bind('<ButtonRelease-1>', lambda event: self.stop_jog())
 
+        self.red_square = red_square = self.canvas.create_rectangle(401, 30, 401 + 61, 46, fill="SystemButtonFace", outline="SystemButtonFace")
+        #self.blank_square = self.canvas.create_rectangle(401, 30, 401 + 61, 46, fill="SystemButtonFace", outline="SystemButtonFace")
+
     def toggle_axis(self):
         if (self.state == 0):
             self.enable_axis()
@@ -403,22 +427,23 @@ class AxisFrame:
         TIMC.acmd(self.queue, "MOVEINC " + self.axisName + " " + distance + " F " + speed)
 
     def jog_positive(self):
-        if (self.state == 1 and self.enableButton['state'] != 'disabled'):
+        if (self.state == 1 and self.enableButton['state'] != 'disabled' and TIMC.scan.scan_flag == 0):
             TIMC.acmd(self.queue, "ABORT " + self.axisName)
             speed = str(self.vel.get())
             TIMC.acmd(self.queue, "FREERUN " + self.axisName + " " + speed)
 
     def jog_negative(self):
-        if (self.state == 1 and self.enableButton['state'] != 'disabled'):
+        if (self.state == 1 and self.enableButton['state'] != 'disabled' and TIMC.scan.scan_flag == 0):
             TIMC.acmd(self.queue, "ABORT " + self.axisName)
             speed = str(-1 * self.vel.get())
             TIMC.acmd(self.queue, "FREERUN " + self.axisName + " " + speed)
 
     def stop_jog(self):
-        if (TIMC.online):
+        if (TIMC.online and TIMC.scan.scan_flag == 0):
             TIMC.acmd(self.queue, "FREERUN " + self.axisName + " 0")
 
     def updatePosError(self, error):
+        global blank_square, red_square
         # Max Error for x1 = 401+61 = 462
         calc_error = int(abs((error / self.max_pos_error)) * 61)
         if (calc_error > 61):
@@ -429,12 +454,12 @@ class AxisFrame:
         y0 = 30
         x1 = x0 + calc_error
         y1 = 46
-        # Legacy error, leaving this until I"m sure the bug is gone
-        try:
-            self.canvas.create_rectangle(x0, y0, x0 + 61, y1, fill="SystemButtonFace", outline="SystemButtonFace")
-            self.canvas.create_rectangle(x0, y0, x1, y1, fill="red", outline="red")
-        except:
-            print("Error")
+
+        # Delete the old representation of position error
+        #self.canvas.delete(self.blank_square)
+        self.canvas.delete(self.red_square)
+        #self.blank_square = self.canvas.create_rectangle(x0, y0, x0 + 61, y1, fill="SystemButtonFace", outline="SystemButtonFace")
+        self.red_square = self.canvas.create_rectangle(x0, y0, x1, y1, fill="red", outline="red")
 
 
 # Will create a scan frame with all buttons, entry boxes, and scales
@@ -497,6 +522,7 @@ class ScanFrame:
         self.radio_0 = Radiobutton(middleFrame, text="Bi-directional", variable=self.scanType, value=0)
         self.radio_1 = Radiobutton(middleFrame, text="Uni-directional", variable=self.scanType, value=1)
         self.time = Entry(middleFrame, state="readonly", width=10, textvariable=self.scanTimeText)
+        self.scan_flag = 0
 
         # GRID TOP
         rowSpaceTop = 18
@@ -557,7 +583,14 @@ class ScanFrame:
         self.create_scan_points()
         self.deactivate_scan_widgets()
         TIMC.scanhead.inactivate_all_btns()
+        TIMC.scanhead.enableButton.config(state="disabled")
         TIMC.pusher.inactivate_all_btns()
+        TIMC.pusher.enableButton.config(state="disabled")
+        self.scan_flag = 1
+        if(self.scanType.get() == 1):
+            scan_type = "UNI-DIRECTIONAL"
+        elif(self.scanType.get() == 0):
+            scan_type = "BI-DIRECTIONAL"
 
         # Prepare the GUI for scanning by disabling/activating appropriate widgets
         # Modify widgets if inputs are correct
@@ -571,13 +604,11 @@ class ScanFrame:
                                        self.index_start,
                                        self.index_stop,
                                        self.index_size,
+                                       scan_type,
                                        self.queue)
         self.process_scan.start()
 
     def stop_scan(self):
-        self.activate_scan_widgets()
-        TIMC.scanhead.activate_all_btns()
-        TIMC.pusher.activate_all_btns()
         self.process_scan.stop()
 
     def pause_scan(self):
@@ -675,7 +706,7 @@ class ScanFrame:
 
 class ScanThread(threading.Thread):
     def __init__(self, scan_points, scan_speed, index_speed, scan_start, scan_stop, index_start, index_stop,
-                 index_size, queue):
+                 index_size, scan_type, queue):
         threading.Thread.__init__(self)
         self._is_running = 1
         self._is_paused = 0
@@ -687,6 +718,7 @@ class ScanThread(threading.Thread):
         self.index_start = index_start
         self.index_stop = index_stop
         self.index_size = index_size
+        self.scan_type = scan_type
         self.queue = queue
         self.i = 0
 
@@ -704,6 +736,11 @@ class ScanThread(threading.Thread):
 
 
     def run(self):
+        # Create entry in logbook for start of scan, not data returned for this command
+        TIMC.acmd("LOG", "LOG SCAN STARTED: " + self.scan_type + ", " + str(self.scan_start) + ", " + str(
+            self.scan_stop) + ", " + str(self.index_start) + ", " + str(self.index_stop) + ", " + str(
+            self.index_size) + "\n")
+
         while (self._is_running):
             time.sleep(SCAN_THREAD_WAIT)
 
@@ -714,12 +751,12 @@ class ScanThread(threading.Thread):
             scan_enabled = 0b1 & scan_status
             scan_in_pos = 0b100 & scan_status
 
-            # Limit the number of calls to the controller by checking scanhead axis first
+            index_status = int(TIMC.acmd(self.queue, "AXISSTATUS(PUSHER)"))
+            index_enabled = 0b1 & index_status
+            index_in_pos = 0b100 & index_status
+
             if (scan_enabled and scan_in_pos and self._is_paused != 1):
                 # If scanhead is in position and not faulted, check the same for the pusher
-                index_status = int(TIMC.acmd(self.queue, "AXISSTATUS(PUSHER)"))
-                index_enabled = 0b1 & index_status
-                index_in_pos = 0b100 & index_status
                 if (index_enabled and index_in_pos and self._is_paused != 1):
                     if self.i < (len(self.scan_points)):
                         # Command scanhead to move to next scan point
@@ -765,18 +802,38 @@ class ScanThread(threading.Thread):
                                 self.i += 1
                     else:
                         messagebox.showinfo("", "Scan is Complete")
+                        TIMC.acmd("LOG", "LOG SCAN COMPLETE")
                         self.stop()
-                # One or both axes are not enabled due to a fault
+                # Index has faulted
                 elif (index_enabled == 0):
                     self.pause()
+            # Scan has faulted
             elif (scan_enabled == 0):
                 self.pause()
 
+    # This function is called when the "STOP" button is pressed or the end of scan has been reached
     def stop(self):
+        # Setting the scan as paused immediately stops sending movement commands
+        self._is_paused = 1
+        TIMC.acmd(self.queue, "ABORT SCANHEAD")
+        TIMC.acmd(self.queue, "ABORT PUSHER")
+        # Turn off the thread
+        self._is_running = 0
+
+        # Axis enable buttons were previously disabled
+        TIMC.scanhead.enableButton.config(state="normal")
+        TIMC.pusher.enableButton.config(state="normal")
+
+        # All other buttons needs to be restored to active state
         TIMC.scan.activate_scan_widgets()
         TIMC.scanhead.activate_all_btns()
         TIMC.pusher.activate_all_btns()
-        self._is_running = 0
+
+        # Setting this allows the jog buttons to be active again
+        TIMC.scan.scan_flag = 0
+
+        # Create a log entry
+        TIMC.acmd("LOG", "LOG SCAN STOPPED \n")
 
     def pause(self):
         self._is_paused = 1
@@ -784,13 +841,23 @@ class ScanThread(threading.Thread):
         TIMC.acmd(self.queue, "ABORT PUSHER")
         TIMC.scan.pause.config(state="disabled")
         TIMC.scan.resume.config(state="active")
+        # Axis enable buttons were previously disabled
+        TIMC.scanhead.enableButton.config(state="normal")
+        TIMC.pusher.enableButton.config(state="normal")
         self.movement_elapsed_time = time.time() - self.movement_start_time
+        # Create entry in log book
+        TIMC.acmd("LOG", "LOG SCAN PAUSED \n")
 
     def resume(self):
         self._is_paused = 0
         TIMC.scan.pause.config(state="active")
         TIMC.scan.resume.config(state="disabled")
+        # Axis enable buttons were previously disabled
+        TIMC.scanhead.enableButton.config(state="disabled")
+        TIMC.pusher.enableButton.config(state="disabled")
         self.movement_start_time = time.time()
+        # Create entry in log book
+        TIMC.acmd("LOG", "LOG SCAN RESUMED \n")
 
     def calc_rem_scan_time(self):
 
@@ -857,6 +924,7 @@ class UpdateStatus(threading.Thread):
     def __init__(self):
         threading.Thread.__init__(self)
         self._is_running = 1
+        self.estop_flag = 0
         self.fault_array = ["PositionError Fault",  # 0
                             "OverCurrent Fault",  # 1
                             "CW/Positive End-of-Travel Limit Fault",  # 2
@@ -896,23 +964,31 @@ class UpdateStatus(threading.Thread):
 
             # If ESTOP fault, else check all other
             if (0b100000000000 & s_fault or 0b100000000000 & p_fault):
-                TIMC.scanhead.disable_axis()
-                TIMC.pusher.disable_axis()
-                TIMC.fault.update_status("ESTOP was pressed")
-            else:
-                faultMask = 1
-                if (s_fault != 0):
+                # Only alarm once for ESTOP
+                if(self.estop_flag == 0):
+                    TIMC.fault.update_status("ESTOP was pressed")
                     TIMC.scanhead.disable_axis()
-                    for i in range(0, len(self.fault_array)):
-                        if ((s_fault & (faultMask << i)) != 0):
-                            TIMC.fault.update_status("FAULT: Scanhead " + str(self.fault_array[i]))
-
-                if (p_fault != 0):
                     TIMC.pusher.disable_axis()
-                    for i in range(0, len(self.fault_array)):
-                        if ((p_fault & (faultMask << i)) != 0):
-                            TIMC.fault.update_status("FAULT: Pusher " + str(self.fault_array[i]))
+                    self.estop_flag == 1
+            else:
+                self.estop_flag == 0
+
+            faultMask = 1
+            # If there is a fault and scanhead is not yet disabled
+            if (s_fault != 0 and TIMC.scanhead.state):
+                TIMC.scanhead.disable_axis()
+                for i in range(0, len(self.fault_array)):
+                    if ((s_fault & (faultMask << i)) != 0):
+                        TIMC.fault.update_status("FAULT: Scanhead " + str(self.fault_array[i]))
+
+            # If there is a fault and pusher is not yet disabled
+            if (p_fault != 0 and TIMC.pusher.state):
+                TIMC.pusher.disable_axis()
+                for i in range(0, len(self.fault_array)):
+                    if ((p_fault & (faultMask << i)) != 0):
+                        TIMC.fault.update_status("FAULT: Pusher " + str(self.fault_array[i]))
             time.sleep(1)
+
     def stop(self):
         self._is_running = 0
 
@@ -927,12 +1003,11 @@ class UpdateFeedback(threading.Thread):
         self.read_index = 0
         self.write_cmd = ["PFBKPROG(SCANHEAD)", "IFBK(SCANHEAD)", "PERR(SCANHEAD)", "PFBKPROG (PUSHER)", "IFBK(PUSHER)",
                           "PERR(PUSHER)"]
-
-
     def run(self):
         while (self._is_running):
             time.sleep(FBK_THREAD_WAIT)
             # If there is something in the read queue, update the correct variable
+            #print_queue_sizes()
             if (TIMC.qFBK_read.qsize()):
 
                 data = TIMC.qFBK_read.get()
@@ -967,8 +1042,7 @@ class UpdateFeedback(threading.Thread):
                     err = float(err)
                     TIMC.pusher.updatePosError(err)
                     self.read_index = 0
-                else:
-                    print("HERE")
+
             if (TIMC.qFBK_write.qsize() == 0):
                 TIMC.qFBK_write.put(self.write_cmd[self.write_index])
                 if (self.write_index < 5):
@@ -983,8 +1057,8 @@ class UpdateLog(threading.Thread):
     def __init__(self, queue):
         threading.Thread.__init__(self)
         self._is_running = 1
+        self.fault_flag = 0
         self.queue = queue
-        self.estop_flag = 0
         self.fault_array = ["PositionError Fault",  # 0
                             "OverCurrent Fault",  # 1
                             "CW/Positive End-of-Travel Limit Fault",  # 2
@@ -1015,7 +1089,10 @@ class UpdateLog(threading.Thread):
                             "Voltage Clamp Fault",  # 27
                             "Power Supply Fault"  # 28
                             ]
-
+        # Create log file
+        text = "JPIT_LOG_" + str(time.strftime("%Y-%m-%d__%H-%M-%S", time.localtime())) + ".txt"
+        self.file = open(text, "w+")
+        self.print_header()
 
     def run(self):
         while(self._is_running):
@@ -1028,42 +1105,74 @@ class UpdateLog(threading.Thread):
                 data = data.replace("%", "")
                 data = data.replace("'","")
                 # Eliminate all results from feedback
-                if("FBK" not in data):
-                    # Stat
+                if("FBK :" not in data):
+                    # STAT: has information about ESTOP or Faults
                     if("STAT:" in data):
                         data = data.replace("STAT:", "")
                         if("SCANHEAD" in data):
                             data = int(data.replace("AXISFAULT (SCANHEAD)", ""))
-                            if (data and not  self.estop_flag):
+                            # If there is a fault data will be a number other than 0
+                            if (data and self.fault_flag == 0):
                                 for i in range(0, len(self.fault_array)):
                                     faultMask = 1
                                     if ((data & (faultMask << i)) != 0):
+                                        self.fault_flag = 1
                                         if(i == 11):
-                                            self.estop_flag = 1
-                                            print("ESTOP Pressed")
+                                            self.file.write(self.pt() + "ESTOP Pressed\n")
                                         else:
-                                            print("FAULT: Scanhead " + str(self.fault_array[i]))
+                                            self.file.write(self.pt() + "FAULT: Scanhead " + str(self.fault_array[i]) + '\n')
 
                         elif("PUSHER" in data):
                             data = int(data.replace("AXISFAULT (PUSHER)", ""))
-                            if (data and not  self.estop_flag):
+                            # If there is a fault data will be a number other than 0
+                            if (data and self.fault_flag == 0):
                                 faultMask = 1
                                 for i in range(0, len(self.fault_array)):
                                     if ((data & (faultMask << i)) != 0):
+                                        self.fault_flag = 1
                                         if (i == 11):
-                                            self.estop_flag = 1
-                                            print("ESTOP Pressed")
+                                            self.file.write(self.pt() + "ESTOP Pressed\n")
                                         else:
-                                            print("FAULT: Scanhead " + str(self.fault_array[i]))
-                    elif("CTRL:" in data and not "STATUS" in data):
+                                            self.file.write(self.pt() + "FAULT: Pusher " + str(self.fault_array[i]) + '\n')
+                    # CTRL: has information about buttons pressed in the axisframe, but filter out data about AXISSTATUS
+                    elif("CTRL:" in data and not "STATUS" in data and not "ABORT" in data):
                         if("ACKNOWLEDGEALL" in data):
-                            self.estop_flag = 0
-                        print(data)
+                            self.file.write(self.pt() + "ACKNOWLEDGEALL\n")
+                            self.fault_flag = 0
+                        else:
+                            self.file.write(self.pt() + data + '\n')
+                    elif("LOG" in data):
+                        self.file.write(self.pt() + data + '\n')
                     #else:
-                        #print("Junk: ",data)
+                        #print("Not Sorted: " + data)
 
     def stop(self):
         self._is_running = 0
+        time.sleep(0.5)
+        self.file.close()
+
+    # Print time
+    def pt(self):
+        result = time.strftime("%H:%M:%S ", time.localtime())
+        return result
+
+    def print_header(self):
+        self.file.write("===============================================================\n")
+        self.file.write("          Tooling Inspection Motion Controller - JPIT          \n")
+        self.file.write("                         - LOG FILE -                          \n")
+        self.file.write("===============================================================\n")
+        self.file.write("Controller Initialized:\n")
+        self.file.write("    Date: " + time.strftime("%Y-%m-%d", time.localtime()) + '\n')
+        self.file.write("    Time: " + time.strftime("%H:%M:%S", time.localtime()) + '\n')
+        self.file.write("    COM Port: \n")
+        self.file.write("    File: " + sys.argv[0] + "\n\n")
+        self.file.write("Computer Information:\n")
+        self.file.write("    Computer Name: " + platform.node() + "\n")
+        self.file.write("    Platform: " + platform.platform() + "\n")
+        self.file.write("    Processor: " + platform.processor() + "\n")
+        self.file.write("    Version: " + platform.version() + "\n")
+        self.file.write("\n\nRECORDED EVENTS\n")
+        self.file.write("===============================================================\n")
 
 def on_closing():
     exception_flag = 0
@@ -1089,6 +1198,7 @@ def on_closing():
         except:
             exception_flag = 1
         try:
+            time.sleep(0.5)
             TIMC.process_serial.stop()
         except:
             exception_flag = 1
@@ -1097,11 +1207,16 @@ def on_closing():
     root.destroy()
 
 def print_queue_sizes():
-    print("FBK_r:", TIMC.qFBK_read.qsize(), " qFBK_w:", TIMC.qFBK_write.qsize(), " qStatus_r:",
-          TIMC.qStatus_read.qsize(), " qStatus_w:", TIMC.qStatus_write.qsize(), " qScan_r:", TIMC.qScan_read.qsize(),
-          " qScan_w:",
-          TIMC.qScan_write.qsize(), " qControl_r", TIMC.qControl_read.qsize(), " qControl_w",
-          TIMC.qControl_write.qsize(), " qLog:", TIMC.qLog.qsize())
+    #print("FBK_r:", TIMC.qFBK_read.qsize(), " qFBK_w:", TIMC.qFBK_write.qsize(), " qStatus_r:",
+    #      TIMC.qStatus_read.qsize(), " qStatus_w:", TIMC.qStatus_write.qsize(), " qScan_r:", TIMC.qScan_read.qsize(),
+    #      " qScan_w:",
+    #      TIMC.qScan_write.qsize(), " qControl_r", TIMC.qControl_read.qsize(), " qControl_w",
+    #      TIMC.qControl_write.qsize(), " qLog:", TIMC.qLog.qsize())
+    print(TIMC.qFBK_read.qsize(), " ", TIMC.qFBK_write.qsize(), " ",
+          TIMC.qStatus_read.qsize(), " ", TIMC.qStatus_write.qsize(), " ", TIMC.qScan_read.qsize(),
+          " ",
+          TIMC.qScan_write.qsize(), " ", TIMC.qControl_read.qsize(), " ",
+          TIMC.qControl_write.qsize(), " ", TIMC.qLog.qsize())
 
 ######################################
 #             Main Code              #
@@ -1120,20 +1235,21 @@ if (TIMC.online):
     process_status.start()
 
     # Start thread for generating log file
-    process_log = UpdateLog(TIMC.qLog)
+    process_log = UpdateLog(TIMC.qLog_write1)
     process_log.start()
 
     # If axis are enabled at startup, disabled them
     TIMC.scanhead.disable_axis()
     TIMC.pusher.disable_axis()
 
+    # Temporary scan settings
     TIMC.scan.e_scanStart.insert(END, "0")
-    TIMC.scan.e_scanStop.insert(END, "20")
+    TIMC.scan.e_scanStop.insert(END, "15")
     TIMC.scan.e_indexStart.insert(END, "0")
-    TIMC.scan.e_indexStop.insert(END, "-2")
-    TIMC.scan.e_indexSize.insert(END, "1")
-    TIMC.scanhead.enable_axis()
-    TIMC.pusher.enable_axis()
+    TIMC.scan.e_indexStop.insert(END, "-.2")
+    TIMC.scan.e_indexSize.insert(END, ".1")
+
+
 
 root.protocol("WM_DELETE_WINDOW", on_closing)
 root.mainloop()
