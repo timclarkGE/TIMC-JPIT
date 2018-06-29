@@ -1,13 +1,14 @@
 ##############################################
 # Tooling Inspection Motion Controller GUI   #
 # Tool: Jet Pump Inspection Tool             #
-# PLM:  TBD                                  #
-# Revision: 0                                #
+# PLM Code Storage:  DOC-0009-1257           #
+# PLM Parameter File Storage: DOC-0009-1258  #
+# Code Revision: 0                           #
 ##############################################
 
 # Author:   Timothy Clark
 # Email:    timoty.clark@ge.com
-# Date:     06/21/2018
+# Date:     06/29/2018
 # Company:  GE Hitachi
 # Description
 #   - Graphical User Interface using Tkinter package
