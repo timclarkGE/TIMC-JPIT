@@ -39,12 +39,14 @@ import serial
 import threading
 import queue
 import time
+import datetime
 import platform
 import sys
 
-FBK_THREAD_WAIT = 0.0001
+THREAD_WAIT = 0.0001
 SCAN_THREAD_WAIT = 0.25
 
+# Define classes with variables associated with each type of frame
 class SetupMainWindow:
     def __init__(self):
         self.gui_width = 485
@@ -91,32 +93,31 @@ class SetupScanFrame:
         self.indexAxisUnits = "in"
         self.queue_name = "SCAN"
 
-
+# Main GUI window which contains the four other frames: Scanhead, Pusher, Scan Frame, Status Frame
 class MainWindow:
     def __init__(self, master, parameters):
         self.parameters = parameters
-
-        # Serial parameters
         self.baud = self.parameters.baud
-        self.online = 0
+        self.online = 0 # If communication is successful with the controller this value will be set to 1
 
-        # Queues for communication between threads
-        self.qFBK_read = queue.Queue()
-        self.qFBK_write = queue.Queue()
-        self.qStatus_read = queue.Queue()
-        self.qStatus_write = queue.Queue()
-        self.qScan_read = queue.Queue()
-        self.qScan_write = queue.Queue()
-        self.qControl_read = queue.Queue()
-        self.qControl_write = queue.Queue()
-        self.qLog_write1 = queue.Queue() # This queue is for all commands that get copied to the log queue
-        self.qLog_write2 = queue.Queue() # This is just for pause and resume log entries
+        # Process Serial Thread monitors and puts data in the queues below
+        self.qFBK_read = queue.Queue()      # Results of the qFBK_write commands recorded here
+        self.qFBK_write = queue.Queue()     # Commands to update the feedback are sent to this queue
+        self.qStatus_read = queue.Queue()   # Results of the qStatus_write commands recorded here
+        self.qStatus_write = queue.Queue()  # Fault checking commands are sent to this queue
+        self.qScan_read = queue.Queue()     # Results of the qScan_write commands recorded here
+        self.qScan_write = queue.Queue()    # Commands from the scan thread are written to this queue
+        self.qControl_read = queue.Queue()  # Results of the qControl_write commands recorded here
+        self.qControl_write = queue.Queue() # Jog, GoTo, Index, and Set button press commands are sent to this queue
+        self.qLog_write1 = queue.Queue()    # All commands are copied to this queue to be processed for the log file
+        self.qLog_write2 = queue.Queue()    # Start, Stop, Pause, Resume button clicks recorded to this queue for the log file
 
-        # Start serial threads
+        # Start serial thread.
         self.process_serial = SerialThread(self.baud, self.qControl_read, self.qControl_write, self.qScan_read,
                                            self.qScan_write, self.qStatus_read, self.qStatus_write, self.qFBK_read,
                                            self.qFBK_write, self.qLog_write1, self.qLog_write2)
         self.process_serial.start()
+
         # Wait for serial thread to establish communication
         time.sleep(0.5)
 
@@ -134,7 +135,7 @@ class MainWindow:
         # Start communication with TIMC
         self.init_communication()
 
-    # Main method for sending commands to TIMC
+    # Main method for sending commands to TIMC, command syntax specified by Aerotech: ASCII Commands
     def acmd(self, queue_name, text):
 
         if (queue_name != "LOG"):
@@ -152,10 +153,11 @@ class MainWindow:
                 write_queue = self.qFBK_write
                 read_queue = self.qFBK_read
 
-            # This code is for all queues except "LOG"
+            # Put command on the queue, process_serial sends the command and returns the result in the read queue
             write_queue.put(text)
             data = read_queue.get()
 
+            # Aerotech drive sends back special characters in response to the command given
             if "!" in data:
                 print("(!) Bad Execution")
                 return 0
@@ -168,15 +170,16 @@ class MainWindow:
             elif data == "":
                 print("No data returned, check serial connection")
                 return 0
+            # If the command was successful, and the command sent requested data fro the controller, the "%" precedes the returned data
             elif "%" in data:
                 data = data.replace("%", "")
                 return data
             else:
                 print("Error")
-        # This is only for pause and resume entries in the log book
+        # process_serial will transfer data from this queue to the main queue processed by process_log
         else:
             self.qLog_write2.put(text)
-
+    # process_serial attempts to communicate with the Aerotech drive, if communcation is not successful then disabled buttons
     def init_communication(self):
         if (self.process_serial.port_open == 0):
             self.fault.update_status("OFFLINE MODE")
@@ -241,46 +244,45 @@ class SerialThread(threading.Thread):
 
         # Thread main loop
         while self._is_running:
-            # Check data in queue with queue priority being: qControl, qScan, qStatus, qFBK_write, qFBK_read, qLog
-            #print(self.qFBK_read.qsize(), " ", self.qFBK_write.qsize(), " ",
-            #      self.qStatus_read.qsize(), " ", self.qStatus_write.qsize(), " ", self.qScan_read.qsize(),
-            #      " ",
-            #      self.qScan_write.qsize(), " ", self.qControl_read.qsize(), " ",
-            #      self.qControl_write.qsize(), " ", self.qLog.qsize())
-            time.sleep(FBK_THREAD_WAIT)
+            time.sleep(THREAD_WAIT)
+            # Check if control queue has commands in the queue to send to the Aerotech drive
             if self.qControl_write.qsize():
                 command = self.qControl_write.get().encode('ascii') + b' \n'
-                try:
-                    self.s.write(command)
-                except:
-                    on_closing()
+                self.s.write(command)
                 data = self.s.readline().decode('ascii')
                 self.qControl_read.put(data)
+                # Copy data Log queue for processing
                 self.qLog_write1.put("CTRL: " + str(command) + str(data))
+            # Check if scan queue has commands in the queue to send to the Aerotech drive
             elif self.qScan_write.qsize():
                 command = self.qScan_write.get().encode('ascii') + b' \n'
                 self.s.write(command)
                 data = self.s.readline().decode('ascii')
                 self.qScan_read.put(data)
+                # Copy data Log queue for processing
                 self.qLog_write1.put("SCAN: " + str(command) + str(data))
+            # Check if status queue has commands in the queue to send to the Aerotech drive
             elif self.qStatus_write.qsize():
                 command = self.qStatus_write.get().encode('ascii') + b' \n'
                 self.s.write(command)
                 data = self.s.readline().decode('ascii')
                 self.qStatus_read.put(data)
+                # Copy data Log queue for processing
                 self.qLog_write1.put("STAT: " + str(command) + str(data))
+            # Check if log queue has actions that need to be copied to the main Log queue, e.g. start/stop/pause/resume buttons were pressed
             elif self.qLog_write2.qsize():
-                # Scan start/stop/pause/resume has happened, read from the second write queue and put in the main log write queue
                 log_entry = self.qLog_write2.get()
                 self.qLog_write1.put(log_entry)
+            # Check if feedback queue has commands in the queue. This is the least priority and this queue will be serviced only if all other queues are empty
             elif self.qFBK_write.qsize():
                 command = self.qFBK_write.get().encode('ascii') + b' \n'
                 self.s.write(command)
                 data = self.s.readline().decode('ascii')
                 self.qFBK_read.put(data)
+                # Copy data Log queue for processing
                 self.qLog_write1.put("FBK : " + str(command) + str(data))
 
-
+    # Stop the thread from running
     def stop(self):
         self._is_running = 0
         try:
@@ -289,7 +291,7 @@ class SerialThread(threading.Thread):
             print("No Serial Port to Close")
 
 
-# Will create an axis frame with all buttons, entry boxes, and scales
+# Will create an axis frame with all buttons (JOG, GoTo, Index, SET), entry boxes, and scales
 class AxisFrame:
     def __init__(self, master, parameters):
         frame = Frame(master, borderwidth=2, relief=SUNKEN)
@@ -324,7 +326,6 @@ class AxisFrame:
                           state=DISABLED, command=lambda: self.move_inc())
         self.mtrPositionBox = Entry(self.canvas, state="readonly", width=10, textvariable=self.mtr_position)
         self.mtrCurrentBox = Entry(self.canvas, state="readonly", width=10, textvariable=self.mtr_current)
-        # self.placeHolder = Entry(canvas, state="readonly", width=10, textvariable=self.mtrError)
         self.e_setPos = Entry(self.canvas, width=10)
         self.e_goTo = Entry(self.canvas, width=10)
         self.e_inc = Entry(self.canvas, width=10)
@@ -361,14 +362,15 @@ class AxisFrame:
         self.inc.grid(row=4, column=5, pady=5)
         self.vel.grid(row=3, column=1, columnspan=2, rowspan=2)
 
-        # Reverse Motion direction is selected in the parameter file for both axis thus functions are switched below
+        # When the user clicks jog button or releases the button click these functions are called to jog the axis
         self.jog_pos.bind('<ButtonPress-1>', lambda event: self.jog_positive())
         self.jog_pos.bind('<ButtonRelease-1>', lambda event: self.stop_jog())
         self.jog_neg.bind('<ButtonPress-1>', lambda event: self.jog_negative())
         self.jog_neg.bind('<ButtonRelease-1>', lambda event: self.stop_jog())
 
+        # A red box is drawn to represent position error and the previous box is deleted. This is initializes the first drawn box
         self.red_square = red_square = self.canvas.create_rectangle(401, 30, 401 + 61, 46, fill="SystemButtonFace", outline="SystemButtonFace")
-        #self.blank_square = self.canvas.create_rectangle(401, 30, 401 + 61, 46, fill="SystemButtonFace", outline="SystemButtonFace")
+
 
     def toggle_axis(self):
         if (self.state == 0):
@@ -392,7 +394,6 @@ class AxisFrame:
             self.inactivate_all_btns()
 
     def inactivate_all_btns(self):
-
         self.jog_pos.config(state="disabled")
         self.jog_neg.config(state="disabled")
         self.set_pos.config(state="disabled")
@@ -401,6 +402,7 @@ class AxisFrame:
         self.vel.config(state="disabled")
 
     def activate_all_btns(self):
+        # Check the status of the axis before activating the buttons
         if ((0b1 & int(TIMC.acmd(self.queue, "AXISSTATUS(" + self.axisName + ")"))) == 1):
             self.state = 1
             self.enableButton.config(text="ON", bg="#00aa00", state="normal")
@@ -445,22 +447,19 @@ class AxisFrame:
             TIMC.acmd(self.queue, "FREERUN " + self.axisName + " 0")
 
     def updatePosError(self, error):
-        global blank_square, red_square
         # Max Error for x1 = 401+61 = 462
         calc_error = int(abs((error / self.max_pos_error)) * 61)
+        # 61 pixels is the maximum length of the box
         if (calc_error > 61):
             calc_error = 61
-        # color = root.cget("bg")
-        # print(color)
         x0 = 401
         y0 = 30
         x1 = x0 + calc_error
         y1 = 46
 
         # Delete the old representation of position error
-        #self.canvas.delete(self.blank_square)
         self.canvas.delete(self.red_square)
-        #self.blank_square = self.canvas.create_rectangle(x0, y0, x0 + 61, y1, fill="SystemButtonFace", outline="SystemButtonFace")
+        # Draw the new position error box
         self.red_square = self.canvas.create_rectangle(x0, y0, x1, y1, fill="red", outline="red")
 
 
@@ -581,23 +580,25 @@ class ScanFrame:
         if ((self.index_stop - self.index_start) % self.index_size > 0.000001):
             messagebox.showinfo("Bad Scan Input", "Index Size must be a multiple of Index Start - Index Stop")
             return
+
         # Calculate the scan points with the given user input, self.scan_points will be created and initialized
         self.create_scan_points()
+
+        #Prepare the buttons in the GUI for a scan by disabling most
         self.deactivate_scan_widgets()
         TIMC.scanhead.inactivate_all_btns()
         TIMC.scanhead.enableButton.config(state="disabled")
         TIMC.pusher.inactivate_all_btns()
         TIMC.pusher.enableButton.config(state="disabled")
+
+        # Scan flag is used to keep the axis from being able to be commanded to jog
         self.scan_flag = 1
         if(self.scanType.get() == 1):
             scan_type = "UNI-DIRECTIONAL"
         elif(self.scanType.get() == 0):
             scan_type = "BI-DIRECTIONAL"
 
-        # Prepare the GUI for scanning by disabling/activating appropriate widgets
-        # Modify widgets if inputs are correct
-
-        # Create a scan thread
+        # Create a scan thread which will command movements to each scan point in self.scan_points
         self.process_scan = ScanThread(self.scan_points,
                                        self.scan_speed,
                                        self.index_speed,
@@ -619,14 +620,15 @@ class ScanFrame:
     def resume_scan(self):
         self.process_scan.resume()
 
+    # Method calculates the scan points based on the user input
     def create_scan_points(self):
         # Scan type variable: 0 = bidirectional, 1 unidirectional
 
         # Variables for generating scan points
-        i_var = self.index_start + self.index_size    # Initialize index variable
-        s_var = self.scan_start                  # Initialize scan variable
-        s_toggle = [self.scan_start, self.scan_stop]  # Toggle values for the scan axis scan points
-        x = 0                               # Toggle control variable
+        i_var = self.index_start + self.index_size      # Initialize index variable
+        s_var = self.scan_start                         # Initialize scan variable
+        s_toggle = [self.scan_start, self.scan_stop]    # Toggle values for the scan axis scan points
+        x = 0                                           # Toggle control variable
 
         # Calculate the number of points in the scan
         # Uni-directional
@@ -655,7 +657,7 @@ class ScanFrame:
                     s_var = self.scan_start
                 self.scan_points[i][0] = s_var
                 self.scan_points[i][1] = i_var
-                #print(s_var,i_var)
+
         # Bi-directional
         elif (self.scanType.get() == 0):
             for i in range(0, size):
@@ -668,7 +670,6 @@ class ScanFrame:
                     i_var -= self.index_size
                 self.scan_points[i][0] = s_var
                 self.scan_points[i][1] = i_var
-                #print(s_var, i_var)
 
     # At the conclusion of a scan or stopped scan, activate all widgets for scan
     def activate_scan_widgets(self):
@@ -687,6 +688,8 @@ class ScanFrame:
         self.scanVelocity.config(state="normal")
         self.indexVelocity.config(state="normal")
         self.scanTimeText.set("00:00:00")
+
+        # If scan motion is taking place, abort the movement
         time.sleep(0.25)
         TIMC.acmd(self.queue, "ABORT SCANHEAD")
         TIMC.acmd(self.queue, "ABORT PUSHER")
@@ -706,6 +709,9 @@ class ScanFrame:
         self.scanVelocity.config(state="disabled")
         self.indexVelocity.config(state="disabled")
 
+
+# Scan thread will assess the status of each axis, command movement to next scan point, if the axis are
+# in position after a commanded move then increment to next scan point
 class ScanThread(threading.Thread):
     def __init__(self, scan_points, scan_speed, index_speed, scan_start, scan_stop, index_start, index_stop,
                  index_size, scan_type, queue):
@@ -724,21 +730,19 @@ class ScanThread(threading.Thread):
         self.queue = queue
         self.i = 0
 
+        # Variables for calculating the running average movement of each axis.
         self.scanhead_moved = 0
         self.number_scanhead_moves = 0
         self.pusher_moved = 0
         self.number_pusher_moves = 0
-
         self.movement_start_time = 0
         self.movement_elapsed_time = 0
         self.avg_scanhead_move_time = abs(scan_start - scan_stop) / scan_speed
         self.avg_pusher_move_time = abs(index_size / index_speed)
         self.last_update_time = time.time()
 
-
-
     def run(self):
-        # Create entry in logbook for start of scan, not data returned for this command
+        # Create entry in logbook for start of scan
         TIMC.acmd("LOG", "LOG SCAN STARTED: " + self.scan_type + ", " + str(self.scan_start) + ", " + str(
             self.scan_stop) + ", " + str(self.index_start) + ", " + str(self.index_stop) + ", " + str(
             self.index_size) + "\n")
@@ -746,9 +750,11 @@ class ScanThread(threading.Thread):
         while (self._is_running):
             time.sleep(SCAN_THREAD_WAIT)
 
+            # If a second has elapsed then call the method to update the remaining scan time
             if ((time.time() - self.last_update_time) > 1 and self.i != 0 and self.i < len(self.scan_points)):
                 self.calc_rem_scan_time()
 
+            # Check the status of each axis to determine if it is time to move to the next scan point
             scan_status = int(TIMC.acmd(self.queue, "AXISSTATUS(SCANHEAD)"))
             scan_enabled = 0b1 & scan_status
             scan_in_pos = 0b100 & scan_status
@@ -760,6 +766,7 @@ class ScanThread(threading.Thread):
             if (scan_enabled and scan_in_pos and self._is_paused != 1):
                 # If scanhead is in position and not faulted, check the same for the pusher
                 if (index_enabled and index_in_pos and self._is_paused != 1):
+                    # If both axes are not faulted, they are in position, and there are scan points remaining, then command movement
                     if self.i < (len(self.scan_points)):
                         # Command scanhead to move to next scan point
                         TIMC.acmd(self.queue,
@@ -769,6 +776,7 @@ class ScanThread(threading.Thread):
                         scan_status = int(TIMC.acmd(self.queue, "AXISSTATUS(SCANHEAD)"))
                         scan_enabled = 0b1 & scan_status
                         scan_in_pos = 0b100 & scan_status
+                        # If the scanhead is in position then the pusher axis needs to be commanded to move
                         if (scan_enabled and scan_in_pos and self._is_paused != 1):
                             # Command pusher to move to next scan point
                             TIMC.acmd(self.queue,
@@ -778,8 +786,9 @@ class ScanThread(threading.Thread):
                             index_status = int(TIMC.acmd(self.queue, "AXISSTATUS(PUSHER)"))
                             index_enabled = 0b1 & index_status
                             index_in_pos = 0b100 & index_status
+                            # If both axes are in position then movement is complete and the scan points index must be incremented
                             if (index_enabled and index_in_pos and self._is_paused != 1):
-                                # Movement complete, calculate move time for each
+                                # Movement complete, calculate move time for each axis
                                 if (self.i == 0):
                                     self.movement_start_time = time.time()
                                 else:
@@ -813,7 +822,7 @@ class ScanThread(threading.Thread):
             elif (scan_enabled == 0):
                 self.pause()
 
-    # This function is called when the "STOP" button is pressed or the end of scan has been reached
+    # This method is called when the "STOP" button is pressed or the end of scan has been reached
     def stop(self):
         # Setting the scan as paused immediately stops sending movement commands
         self._is_paused = 1
@@ -837,32 +846,35 @@ class ScanThread(threading.Thread):
         # Create a log entry
         TIMC.acmd("LOG", "LOG SCAN STOPPED \n")
 
+    # This method is called when the "PAUSE" button is pressed or an axis has faulted
     def pause(self):
         self._is_paused = 1
         TIMC.acmd(self.queue, "ABORT SCANHEAD")
         TIMC.acmd(self.queue, "ABORT PUSHER")
         TIMC.scan.pause.config(state="disabled")
         TIMC.scan.resume.config(state="active")
-        # Axis enable buttons were previously disabled
+        # Axis enable buttons were previously disabled, in the event of a fault the user will need to enable the axis after resetting the fault
         TIMC.scanhead.enableButton.config(state="normal")
         TIMC.pusher.enableButton.config(state="normal")
+        # The move times are recorded for the running average so the elapsed timer must be paused
         self.movement_elapsed_time = time.time() - self.movement_start_time
         # Create entry in log book
         TIMC.acmd("LOG", "LOG SCAN PAUSED \n")
 
+    # This method is called when the "RESUME" button is pressed
     def resume(self):
         self._is_paused = 0
         TIMC.scan.pause.config(state="active")
         TIMC.scan.resume.config(state="disabled")
-        # Axis enable buttons were previously disabled
+        # Axis enable buttons were enabled when the PAUSE button was pressed
         TIMC.scanhead.enableButton.config(state="disabled")
         TIMC.pusher.enableButton.config(state="disabled")
         self.movement_start_time = time.time()
         # Create entry in log book
         TIMC.acmd("LOG", "LOG SCAN RESUMED \n")
 
+    # Method to calculate and update the timer in the scan window
     def calc_rem_scan_time(self):
-
         scanhead_pos = float(TIMC.acmd(self.queue, "PFBKPROG(SCANHEAD)"))
         pusher_pos = float(TIMC.acmd(self.queue, "PFBKPROG(PUSHER)"))
         scan_time = 0
@@ -889,7 +901,7 @@ class ScanThread(threading.Thread):
         seconds = int(scan_time - hours * 3600 - mins * 60)
         TIMC.scan.scanTimeText.set(str(hours).zfill(2) + ":" + str(mins).zfill(2) + ":" + str(seconds).zfill(2))
 
-
+# Fault frame to display fault text and fault reset button to clear faults
 class FaultFrame():
     def __init__(self, master):
         self.frame = Frame(master, borderwidth=2, relief=SUNKEN)
@@ -908,11 +920,12 @@ class FaultFrame():
         self.entry.grid(row=1, column=0, columnspan=2, padx=30)
         self.button.grid(row=1, column=2, pady=5, padx=5)
 
+    # Method to display the fault text and change the background color to red
     def update_status(self, text):
         self.canvas.config(bg="red")
         self.label_0.config(bg="red")
         self.status_text.set(text)
-
+    # Method to reset the fault and change background color back to default
     def fault_ack(self):
         if (TIMC.online):
             TIMC.acmd("CTRL", "ACKNOWLEDGEALL")
@@ -920,51 +933,54 @@ class FaultFrame():
             self.label_0.config(bg="SystemButtonFace")
             self.status_text.set("")
 
-
+# Thread will assess if a fault has occurred and call the apropriate methods to change the state of the GUI
 class UpdateStatus(threading.Thread):
 
     def __init__(self):
         threading.Thread.__init__(self)
         self._is_running = 1
         self.estop_flag = 0
-        self.fault_array = ["PositionError Fault",  # 0
-                            "OverCurrent Fault",  # 1
-                            "CW/Positive End-of-Travel Limit Fault",  # 2
-                            "CCW/Negative End-of-Travel Limit Fault",  # 3
-                            "CW/High Software Limit Fault",  # 4
-                            "CCW/Low Software Limit Fault",  # 5
-                            "Amplifier Fault",  # 6
-                            "Position Feedback Fault",  # 7
-                            "Velocity Feedback Fault",  # 8
-                            "Hall Sensor Fault",  # 9
-                            "Maximum Velocity Command Fault",  # 10
-                            "Emergency Stop Fault",  # 11
-                            "Velocity Error Fault",  # 12
-                            "N/A",  # 13
-                            "N/A",  # 14
-                            "External Fault",  # 15
-                            "N/A",  # 16
-                            "Motor Temperature Fault",  # 17
-                            "Amplifier Temperature Fault",  # 18
-                            "Encoder Fault",  # 19
-                            "Communication Lost Fault",  # 20
-                            "N/A",  # 21
-                            "N/A",  # 22
-                            "Feedback Scaling Fault",  # 23
-                            "Marker Search Fault",  # 24
-                            "N/A",  # 25
-                            "N/A",  # 26
-                            "Voltage Clamp Fault",  # 27
-                            "Power Supply Fault"  # 28
+        # Aerotech defines a bit mapped variable for the type of fault, BIT
+        self.fault_array = ["PositionError Fault",                      # 0
+                            "OverCurrent Fault",                        # 1
+                            "CW/Positive End-of-Travel Limit Fault",    # 2
+                            "CCW/Negative End-of-Travel Limit Fault",   # 3
+                            "CW/High Software Limit Fault",             # 4
+                            "CCW/Low Software Limit Fault",             # 5
+                            "Amplifier Fault",                          # 6
+                            "Position Feedback Fault",                  # 7
+                            "Velocity Feedback Fault",                  # 8
+                            "Hall Sensor Fault",                        # 9
+                            "Maximum Velocity Command Fault",           # 10
+                            "Emergency Stop Fault",                     # 11
+                            "Velocity Error Fault",                     # 12
+                            "N/A",                                      # 13
+                            "N/A",                                      # 14
+                            "External Fault",                           # 15
+                            "N/A",                                      # 16
+                            "Motor Temperature Fault",                  # 17
+                            "Amplifier Temperature Fault",              # 18
+                            "Encoder Fault",                            # 19
+                            "Communication Lost Fault",                 # 20
+                            "N/A",                                      # 21
+                            "N/A",                                      # 22
+                            "Feedback Scaling Fault",                   # 23
+                            "Marker Search Fault",                      # 24
+                            "N/A",                                      # 25
+                            "N/A",                                      # 26
+                            "Voltage Clamp Fault",                      # 27
+                            "Power Supply Fault"                        # 28
                             ]
 
     def run(self):
         while(self._is_running):
-            # Spread out the calls to status
+            # Spread out calls Aerotech drive on the status of each axis
+            time.sleep(0.5)
             s_fault = int(TIMC.acmd("STATUS", "AXISFAULT (SCANHEAD)"))
+            time.sleep(0.5)
             p_fault = int(TIMC.acmd("STATUS", "AXISFAULT (PUSHER)"))
 
-            # If ESTOP fault, else check all other
+            # Bitwise AND the fault data with a mask to check specifically for ESTOP
             if (0b100000000000 & s_fault or 0b100000000000 & p_fault):
                 # Only alarm once for ESTOP
                 if(self.estop_flag == 0):
@@ -979,6 +995,7 @@ class UpdateStatus(threading.Thread):
             # If there is a fault and scanhead is not yet disabled
             if (s_fault != 0 and TIMC.scanhead.state):
                 TIMC.scanhead.disable_axis()
+                # Create fault masks to bitwise AND the data to determine which type of fault has occured.
                 for i in range(0, len(self.fault_array)):
                     if ((s_fault & (faultMask << i)) != 0):
                         TIMC.fault.update_status("FAULT: Scanhead " + str(self.fault_array[i]))
@@ -986,30 +1003,32 @@ class UpdateStatus(threading.Thread):
             # If there is a fault and pusher is not yet disabled
             if (p_fault != 0 and TIMC.pusher.state):
                 TIMC.pusher.disable_axis()
+                # Create fault masks to bitwise AND the data to determine which type of fault has occured.
                 for i in range(0, len(self.fault_array)):
                     if ((p_fault & (faultMask << i)) != 0):
                         TIMC.fault.update_status("FAULT: Pusher " + str(self.fault_array[i]))
-            time.sleep(1)
 
     def stop(self):
         self._is_running = 0
 
-# Update the feedback on the GUI
+# Thread to update the feedback on the GUI. The thread always loads commands into the feedback write queue
+# and the feedback read queue is synced to the write queue to update the appropriate feedback variable on the GUI
 class UpdateFeedback(threading.Thread):
 
     def __init__(self):
         threading.Thread.__init__(self)
         self.setDaemon(True)
         self._is_running = 1
-        self.write_index = 0
-        self.read_index = 0
+        self.write_index = 0    # Variable to sync read and write queue
+        self.read_index = 0     # Variable to sync read and write queue
+
+        # Array of text which are ASCII commands compatible with the Aerotech drive
         self.write_cmd = ["PFBKPROG(SCANHEAD)", "IFBK(SCANHEAD)", "PERR(SCANHEAD)", "PFBKPROG (PUSHER)", "IFBK(PUSHER)",
                           "PERR(PUSHER)"]
     def run(self):
         while (self._is_running):
-            time.sleep(FBK_THREAD_WAIT)
+            time.sleep(THREAD_WAIT)
             # If there is something in the read queue, update the correct variable
-            #print_queue_sizes()
             if (TIMC.qFBK_read.qsize()):
 
                 data = TIMC.qFBK_read.get()
@@ -1045,6 +1064,7 @@ class UpdateFeedback(threading.Thread):
                     TIMC.pusher.updatePosError(err)
                     self.read_index = 0
 
+            # Auto-populate the feedback write queue with commands so the queue is never empty
             if (TIMC.qFBK_write.qsize() == 0):
                 TIMC.qFBK_write.put(self.write_cmd[self.write_index])
                 if (self.write_index < 5):
@@ -1054,67 +1074,46 @@ class UpdateFeedback(threading.Thread):
     def stop(self):
         self._is_running = 0
 
+# Thread to updated the log file. All commands send to the Aerotech drive are sent to this thread which decides what information to keep
 class UpdateLog(threading.Thread):
 
-    def __init__(self, queue):
+    def __init__(self, queue, fault_array):
         threading.Thread.__init__(self)
         self._is_running = 1
         self.fault_flag = 0
         self.queue = queue
-        self.fault_array = ["PositionError Fault",  # 0
-                            "OverCurrent Fault",  # 1
-                            "CW/Positive End-of-Travel Limit Fault",  # 2
-                            "CCW/Negative End-of-Travel Limit Fault",  # 3
-                            "CW/High Software Limit Fault",  # 4
-                            "CCW/Low Software Limit Fault",  # 5
-                            "Amplifier Fault",  # 6
-                            "Position Feedback Fault",  # 7
-                            "Velocity Feedback Fault",  # 8
-                            "Hall Sensor Fault",  # 9
-                            "Maximum Velocity Command Fault",  # 10
-                            "Emergency Stop Fault",  # 11
-                            "Velocity Error Fault",  # 12
-                            "N/A",  # 13
-                            "N/A",  # 14
-                            "External Fault",  # 15
-                            "N/A",  # 16
-                            "Motor Temperature Fault",  # 17
-                            "Amplifier Temperature Fault",  # 18
-                            "Encoder Fault",  # 19
-                            "Communication Lost Fault",  # 20
-                            "N/A",  # 21
-                            "N/A",  # 22
-                            "Feedback Scaling Fault",  # 23
-                            "Marker Search Fault",  # 24
-                            "N/A",  # 25
-                            "N/A",  # 26
-                            "Voltage Clamp Fault",  # 27
-                            "Power Supply Fault"  # 28
-                            ]
-        # Create log file
+        self.fault_array = fault_array
+
+        # Create log file with date and time as apart of the file name
         text = "JPIT_LOG_" + str(time.strftime("%Y-%m-%d__%H-%M-%S", time.localtime())) + ".txt"
         self.file = open(text, "w+")
         self.print_header()
 
+        # Set variable to monitor if day has changed
+        now = datetime.datetime.now()
+        self.day = now.day
+
     def run(self):
         while(self._is_running):
-            time.sleep(FBK_THREAD_WAIT)
+            time.sleep(THREAD_WAIT)
             if (self.queue.qsize()):
+                # Remove unnecessary text from the command
                 data = self.queue.get()
                 data = data.replace("b'","")
                 data = data.replace("\n", "")
                 data = data.replace("\\n","")
                 data = data.replace("%", "")
                 data = data.replace("'","")
-                # Eliminate all results from feedback
+                # Eliminate all results from feedback, log file would too large if this data was kept
                 if("FBK :" not in data):
-                    # STAT: has information about ESTOP or Faults
+                    # "STAT:" has information about ESTOP or Faults, save this data if there is a fault
                     if("STAT:" in data):
                         data = data.replace("STAT:", "")
                         if("SCANHEAD" in data):
                             data = int(data.replace("AXISFAULT (SCANHEAD)", ""))
                             # If there is a fault data will be a number other than 0
                             if (data and self.fault_flag == 0):
+                                # Check which type of fault occurred with Bitwise AND and a fault mask
                                 for i in range(0, len(self.fault_array)):
                                     faultMask = 1
                                     if ((data & (faultMask << i)) != 0):
@@ -1128,8 +1127,9 @@ class UpdateLog(threading.Thread):
                             data = int(data.replace("AXISFAULT (PUSHER)", ""))
                             # If there is a fault data will be a number other than 0
                             if (data and self.fault_flag == 0):
-                                faultMask = 1
+                                # Check which type of fault occurred with Bitwise AND and a fault mask
                                 for i in range(0, len(self.fault_array)):
+                                    faultMask = 1
                                     if ((data & (faultMask << i)) != 0):
                                         self.fault_flag = 1
                                         if (i == 11):
@@ -1145,19 +1145,24 @@ class UpdateLog(threading.Thread):
                             self.file.write(self.pt() + data + '\n')
                     elif("LOG" in data):
                         self.file.write(self.pt() + data + '\n')
-                    #else:
-                        #print("Not Sorted: " + data)
 
     def stop(self):
         self._is_running = 0
         time.sleep(0.5)
         self.file.close()
 
-    # Print time
+    # Method to print the time
     def pt(self):
+        # Check if the day has changed
+        now = datetime.datetime.now()
+        if(self.day != now.day):
+            self.new_day()      # Insert a new day into the log file
+            self.day = now.day  # Update current day
+        # Return the time for the log entry
         result = time.strftime("%H:%M:%S ", time.localtime())
         return result
 
+    # Header at the beginning of the log file
     def print_header(self):
         self.file.write("===============================================================\n")
         self.file.write("          Tooling Inspection Motion Controller - JPIT          \n")
@@ -1176,6 +1181,14 @@ class UpdateLog(threading.Thread):
         self.file.write("\n\nRECORDED EVENTS\n")
         self.file.write("===============================================================\n")
 
+    # Print in the log file a new day
+    def new_day(self):
+        self.file.write("\n")
+        self.file.write("===============================================================\n")
+        self.file.write("\t\t\t" + time.strftime("%Y-%m-%d", time.localtime() + "\n"))
+        self.file.write("===============================================================\n\n")
+
+# Function that is called when the user closes the screen
 def on_closing():
     exception_flag = 0
     if(TIMC.online):
@@ -1208,18 +1221,6 @@ def on_closing():
         print("ERROR CLOSING A THREAD")
     root.destroy()
 
-def print_queue_sizes():
-    #print("FBK_r:", TIMC.qFBK_read.qsize(), " qFBK_w:", TIMC.qFBK_write.qsize(), " qStatus_r:",
-    #      TIMC.qStatus_read.qsize(), " qStatus_w:", TIMC.qStatus_write.qsize(), " qScan_r:", TIMC.qScan_read.qsize(),
-    #      " qScan_w:",
-    #      TIMC.qScan_write.qsize(), " qControl_r", TIMC.qControl_read.qsize(), " qControl_w",
-    #      TIMC.qControl_write.qsize(), " qLog:", TIMC.qLog.qsize())
-    print(TIMC.qFBK_read.qsize(), " ", TIMC.qFBK_write.qsize(), " ",
-          TIMC.qStatus_read.qsize(), " ", TIMC.qStatus_write.qsize(), " ", TIMC.qScan_read.qsize(),
-          " ",
-          TIMC.qScan_write.qsize(), " ", TIMC.qControl_read.qsize(), " ",
-          TIMC.qControl_write.qsize(), " ", TIMC.qLog.qsize())
-
 ######################################
 #             Main Code              #
 ######################################
@@ -1237,22 +1238,14 @@ if (TIMC.online):
     process_status.start()
 
     # Start thread for generating log file
-    process_log = UpdateLog(TIMC.qLog_write1)
+    process_log = UpdateLog(TIMC.qLog_write1, process_status.fault_array)
     process_log.start()
 
     # If axis are enabled at startup, disabled them
     TIMC.scanhead.disable_axis()
     TIMC.pusher.disable_axis()
 
-    # Temporary scan settings
-    TIMC.scan.e_scanStart.insert(END, "0")
-    TIMC.scan.e_scanStop.insert(END, "15")
-    TIMC.scan.e_indexStart.insert(END, "0")
-    TIMC.scan.e_indexStop.insert(END, "-.2")
-    TIMC.scan.e_indexSize.insert(END, ".1")
-
-
-
+# Start the update loop for the GUI and define what to do when closing the GUI
 root.protocol("WM_DELETE_WINDOW", on_closing)
 root.mainloop()
 
