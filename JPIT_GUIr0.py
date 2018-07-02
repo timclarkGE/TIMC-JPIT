@@ -84,7 +84,7 @@ class SetupScanFrame:
     def __init__(self):
         self.axisName = "SCAN WINDOW"
         self.scanSpeedMin = 0.5
-        self.scanSpeedMax = 15
+        self.scanSpeedMax = 20
         self.scanSpeedRes = 0.5
         self.indexSpeedMin = 0.05
         self.indexSpeedMax = 1
@@ -558,7 +558,40 @@ class ScanFrame:
         self.e_indexSize.grid(row=6, column=4)
 
     def start_scan(self):
-        # Get input from user and store to local variable
+
+        # Get user data and store to variable array to check for correct type of input
+        check_data = [self.e_scanStart.get(), self.e_scanStop.get(), self.e_indexStart.get(), self.e_indexStop.get(), self.e_indexSize.get()]
+
+        # Check if user has entered numbers and/or one decimal place and/or a negative only at the beginning
+        for i in range(0,4):
+            # Check if user has entered data
+            if(check_data[i] == ""):
+                messagebox.showinfo("Bad Scan Input", "User must enter all five scan window inputs")
+                return
+            # If there is a negative sign
+            if("-" in check_data[i]):
+                # There should only be one and it should be at the beggining
+                if(check_data[i].count("-") == 1 and check_data[i].index('-') == 0):
+                    # Remove the negative sign and continue to next check
+                    check_data[i] = check_data[i].replace("-","",1)
+                else:
+                    messagebox.showinfo("Bad Scan Input", "Error associated with '-' character")
+                    return
+            # If there is a period sign there should only be one
+            if("." in check_data[i]):
+                # There should only be one period
+                if(check_data[i].count(".") == 1):
+                    check_data[i] = check_data[i].replace(".", "", 1)
+                else:
+                    messagebox.showinfo("Bad Scan Input", "Error associated with '.' character")
+                    return
+
+            # Check that remaining characters are only numbers
+            if(not check_data[i].isdigit()):
+                messagebox.showinfo("Bad Scan Input", "Error scan inputs have characters")
+                return
+
+        # Convert user data to type float
         self.scan_start = float(self.e_scanStart.get())
         self.scan_stop = float(self.e_scanStop.get())
         self.index_start = float(self.e_indexStart.get())
@@ -567,7 +600,7 @@ class ScanFrame:
         self.scan_speed = float(self.scanVelocity.get())
         self.index_speed = float(self.indexVelocity.get())
 
-        # Check user inputs
+        # Check user inputs for correctness as it relates to a scan
         if (self.scan_stop == self.scan_start):
             messagebox.showinfo("Bad Scan Input", "Scan Stop equals Scan Start")
             return
@@ -740,6 +773,7 @@ class ScanThread(threading.Thread):
         self.avg_scanhead_move_time = abs(scan_start - scan_stop) / scan_speed
         self.avg_pusher_move_time = abs(index_size / index_speed)
         self.last_update_time = time.time()
+        self.setDaemon(True) # Set this value to true in the event the user closes the screen without stopping the scan
 
     def run(self):
         # Create entry in logbook for start of scan
@@ -828,7 +862,6 @@ class ScanThread(threading.Thread):
         self._is_paused = 1
         TIMC.acmd(self.queue, "ABORT SCANHEAD")
         TIMC.acmd(self.queue, "ABORT PUSHER")
-        # Turn off the thread
         self._is_running = 0
 
         # Axis enable buttons were previously disabled
@@ -1219,6 +1252,7 @@ def on_closing():
             exception_flag = 1
     if(exception_flag):
         print("ERROR CLOSING A THREAD")
+
     root.destroy()
 
 ######################################
