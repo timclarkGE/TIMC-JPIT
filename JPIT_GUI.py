@@ -156,16 +156,16 @@ class MainWindow:
             data = read_queue.get()
 
             if "!" in data:
-                print("(!) Bad Execution")
+                print("(!) Bad Execution, Queue:", queue_name, "CMD:", text)
                 return 0
             elif "#" in data:
-                print("(#) ACK but cannot execute")
+                print("(#) ACK but cannot execute, Queue:", queue_name, "CMD:", text)
                 return 0
             elif "$" in data:
-                print("($) CMD timeout")
+                print("($) CMD timeout, Queue: ", queue_name, ", CMD:", text)
                 return 0
             elif data == "":
-                print("No data returned, check serial connection")
+                print("No data returned, check serial connection, Queue:", queue_name, "CMD:", text)
                 return 0
             elif "%" in data:
                 data = data.replace("%", "")
