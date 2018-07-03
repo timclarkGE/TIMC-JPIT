@@ -1218,7 +1218,7 @@ class UpdateLog(threading.Thread):
     def new_day(self):
         self.file.write("\n")
         self.file.write("===============================================================\n")
-        self.file.write("\t\t\t" + time.strftime("%Y-%m-%d", time.localtime() + "\n"))
+        self.file.write("\t\t\t" + time.strftime("%Y-%m-%d", time.localtime()) + "\n")
         self.file.write("===============================================================\n\n")
 
 # Function that is called when the user closes the screen
