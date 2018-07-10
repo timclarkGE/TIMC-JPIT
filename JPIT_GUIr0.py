@@ -16,6 +16,7 @@
 #   - Lienar amplifiers to reduce EMI: Aerotech Ensemble ML
 #   - Serial communication with Aerobasic ASCII commands
 #
+#
 # ###########################################################
 
 # Resources used to write this code:
@@ -159,16 +160,16 @@ class MainWindow:
 
             # Aerotech drive sends back special characters in response to the command given
             if "!" in data:
-                print("(!) Bad Execution")
+                print("(!) Bad Execution, Queue:",queue_name,"CMD:",text)
                 return 0
             elif "#" in data:
-                print("(#) ACK but cannot execute")
+                print("(#) ACK but cannot execute, Queue:",queue_name,"CMD:",text)
                 return 0
             elif "$" in data:
-                print("($) CMD timeout")
+                print("($) CMD timeout, Queue:",queue_name,"CMD:",text)
                 return 0
             elif data == "":
-                print("No data returned, check serial connection")
+                print("No data returned, check serial connection, Queue:",queue_name,"CMD:",text)
                 return 0
             # If the command was successful, and the command sent requested data fro the controller, the "%" precedes the returned data
             elif "%" in data:
@@ -797,63 +798,59 @@ class ScanThread(threading.Thread):
             index_enabled = 0b1 & index_status
             index_in_pos = 0b100 & index_status
 
-            if (scan_enabled and scan_in_pos and self._is_paused != 1):
-                # If scanhead is in position and not faulted, check the same for the pusher
-                if (index_enabled and index_in_pos and self._is_paused != 1):
-                    # If both axes are not faulted, they are in position, and there are scan points remaining, then command movement
-                    if self.i < (len(self.scan_points)):
-                        # Command scanhead to move to next scan point
+            # Check if scanhead and pusher are in position and not disabled
+            if (scan_enabled and scan_in_pos and self._is_paused != 1 and index_enabled and index_in_pos):
+                # If both axes are not faulted, they are in position, and there are scan points remaining, then command movement
+                if self.i < (len(self.scan_points)):
+                    # Command scanhead to move to next scan point
+                    TIMC.acmd(self.queue,
+                              "MOVEABS SCANHEAD " + str(self.scan_points[self.i][0]) + " F " + str(
+                                  self.scan_speed))
+                    # Check if scanhead is in position despite being told to move to the next scan point.
+                    scan_status = int(TIMC.acmd(self.queue, "AXISSTATUS(SCANHEAD)"))
+                    scan_enabled = 0b1 & scan_status
+                    scan_in_pos = 0b100 & scan_status
+                    # If the scanhead is in position then the pusher axis needs to be commanded to move
+                    if (scan_enabled and scan_in_pos and self._is_paused != 1):
+                        # Command pusher to move to next scan point
                         TIMC.acmd(self.queue,
-                                  "MOVEABS SCANHEAD " + str(self.scan_points[self.i][0]) + " F " + str(
-                                      self.scan_speed))
-                        # Check if scanhead is in position despite being told to move to the next scan point.
-                        scan_status = int(TIMC.acmd(self.queue, "AXISSTATUS(SCANHEAD)"))
-                        scan_enabled = 0b1 & scan_status
-                        scan_in_pos = 0b100 & scan_status
-                        # If the scanhead is in position then the pusher axis needs to be commanded to move
-                        if (scan_enabled and scan_in_pos and self._is_paused != 1):
-                            # Command pusher to move to next scan point
-                            TIMC.acmd(self.queue,
-                                      "MOVEABS PUSHER " + str(self.scan_points[self.i][1]) + " F " + str(
-                                          self.index_speed))
-                            # Check if pusher is in position despite being told to move to the next scan point.
-                            index_status = int(TIMC.acmd(self.queue, "AXISSTATUS(PUSHER)"))
-                            index_enabled = 0b1 & index_status
-                            index_in_pos = 0b100 & index_status
-                            # If both axes are in position then movement is complete and the scan points index must be incremented
-                            if (index_enabled and index_in_pos and self._is_paused != 1):
-                                # Movement complete, calculate move time for each axis
-                                if (self.i == 0):
-                                    self.movement_start_time = time.time()
-                                else:
-                                    self.movement_elapsed_time = time.time() - self.movement_start_time + self.movement_elapsed_time
-                                    self.scanhead_moved = self.scan_points[self.i][0] - self.scan_points[self.i - 1][0]
-                                    self.pusher_moved = self.scan_points[self.i][1] - self.scan_points[self.i - 1][1]
-                                    if (self.scanhead_moved):
-                                        self.avg_scanhead_move_time = (
-                                                self.avg_scanhead_move_time * self.number_scanhead_moves + self.movement_elapsed_time)
-                                        self.number_scanhead_moves += 1
-                                        self.avg_scanhead_move_time /= self.number_scanhead_moves
-                                    elif (self.pusher_moved):
-                                        self.avg_pusher_move_time = (
-                                                self.avg_pusher_move_time * self.number_pusher_moves + self.movement_elapsed_time)
-                                        self.number_pusher_moves += 1
-                                        self.avg_pusher_move_time /= self.number_pusher_moves
-                                    # Reset time variables
-                                    self.movement_start_time = time.time()
-                                    self.movement_elapsed_time = 0
+                                  "MOVEABS PUSHER " + str(self.scan_points[self.i][1]) + " F " + str(
+                                      self.index_speed))
+                        # Check if pusher is in position despite being told to move to the next scan point.
+                        index_status = int(TIMC.acmd(self.queue, "AXISSTATUS(PUSHER)"))
+                        index_enabled = 0b1 & index_status
+                        index_in_pos = 0b100 & index_status
+                        # If both axes are in position then movement is complete and the scan points index must be incremented
+                        if (index_enabled and index_in_pos and self._is_paused != 1):
+                            # Movement complete, calculate move time for each axis
+                            if (self.i == 0):
+                                self.movement_start_time = time.time()
+                            else:
+                                self.movement_elapsed_time = time.time() - self.movement_start_time + self.movement_elapsed_time
+                                self.scanhead_moved = self.scan_points[self.i][0] - self.scan_points[self.i - 1][0]
+                                self.pusher_moved = self.scan_points[self.i][1] - self.scan_points[self.i - 1][1]
+                                if (self.scanhead_moved):
+                                    self.avg_scanhead_move_time = (
+                                            self.avg_scanhead_move_time * self.number_scanhead_moves + self.movement_elapsed_time)
+                                    self.number_scanhead_moves += 1
+                                    self.avg_scanhead_move_time /= self.number_scanhead_moves
+                                elif (self.pusher_moved):
+                                    self.avg_pusher_move_time = (
+                                            self.avg_pusher_move_time * self.number_pusher_moves + self.movement_elapsed_time)
+                                    self.number_pusher_moves += 1
+                                    self.avg_pusher_move_time /= self.number_pusher_moves
+                                # Reset time variables
+                                self.movement_start_time = time.time()
+                                self.movement_elapsed_time = 0
 
-                                # Ready for next scan point
-                                self.i += 1
-                    else:
-                        messagebox.showinfo("", "Scan is Complete")
-                        TIMC.acmd("LOG", "LOG SCAN COMPLETE")
-                        self.stop()
-                # Index has faulted
-                elif (index_enabled == 0):
-                    self.pause()
-            # Scan has faulted
-            elif (scan_enabled == 0):
+                            # Ready for next scan point
+                            self.i += 1
+                else:
+                    messagebox.showinfo("", "Scan is Complete")
+                    TIMC.acmd("LOG", "LOG SCAN COMPLETE")
+                    self.stop()
+            # Scan or index has faulted has faulted
+            elif (scan_enabled == 0 or index_enabled == 0):
                 self.pause()
 
     # This method is called when the "STOP" button is pressed or the end of scan has been reached
