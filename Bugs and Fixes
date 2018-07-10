@@ -1,0 +1,50 @@
+Comments From Joe Barach:
+1.	When a GOTO is used on the scan at max speed I get an error that says maximum velocity exceeded.
+    COMPLETE: I need to change the max commanded speed in the parameter file to 15.1 or something slightly larger than 15. In the software I allow 15 deg/sec but I think during movements that value might vary slightly.
+2.	You can only scan from up to down. If you try to scan from down to up then it says “bad scan inputs.”
+    COMPLETE: I need to update the parameter file. When I press the “UP” button the feedback position needs to get more negative.
+    COMPLETE: Additionally I need to change the scan axis also. When I click the CW button the tool should spin clockwise when looking down at the tool.
+3.	If the scan head faults during a scan it should pause the scan so you can resume it after adjusting pressure or whatever.  What I got was a condition that it said “FAULT: Scanhead Position Feedback Fault” and it would not go away even when I reset it and power cycled the controller.
+    COMPLETE: This was from a pinched resolver wire in the scanhead. This has been fixed
+
+Comments From Jason Mann:
+1.	GUI height was not correct on new laptop
+    N/A, this appears to not be an issue. When using the new JPIT laptop there were no issues with the GUI height.
+2.	Position Error box was in the wrong location on new laptop
+    N/A, see above
+3.	Threads appear to still be running after the window is closed.
+    FIXED: I changed threads to daemon which allowed the program to close along with the threads
+
+Things I’ve Noticed:
+1.	When you disconnect the serial connection, program hangs
+    NOT FIXED, I’m not going to try to fix this right now
+2.	You should only have to click the “Fault Rest” button once after a fault.
+    FIXED
+3.	There is no feedback for the user when a !, #, or a $ symbol is produced by the controller
+    FIXED, I’m not going to fix this right now, but the characters are stored in the log file.
+
+Functional Testing:
+1.	When in a scan, the pusher faulted but the scan axis still tried to finish its scan line.
+    FIXED:  I stopped trying to be efficient with my STATUS calls in the scan sequence. I look for the status of both axes and now the scan will pause if either of the axis faults out.
+2.	When in a scan, pressing stop does not abort the current motion
+    FIXED: __is_paused immediately stops movement. I used this variable to fix the problem
+3.	After scan is complete the jog buttons do not work
+    FIXED: Fixed by changing the scan flag from within the scan thread. Should be ok since other threads will not try to access this variable except when pressing jog buttons. User must acknowledge scan is complete by pressing button on popup window and cannot move over to press the jog button fast enough for this to be a problem.
+4.	When in a scan and a fault occurs, the user cannot renable the axis.
+    FIXED by changing the enable buttons from “disabled” to “normal” when paused. If the user disables an axis and tries to “resume” the scan again it just pauses the exam until they enable the axis and clicks on “resume”
+5.	The calc remaining scan time function got corrupted when I started pressing pause/resume a lot. The issue is from when the ABORT command is called from the “pause” button. The issue happens a lot more frequently  when I’m print the “Not Sorted” data to the screen .
+    Temporary fix is to put a time.sleep(0.25) on the pause button to allow for time on the “ABORT” commands.
+    I changed the abort commands over to the “CTRL” queue and the problem does not go away.
+    I commented out the code that logs a pause and a resume and I could not get the error to occur. Now I’ll comment out the time.sleep(.25). Problem solved, the log function for pause and resume was causing the problem.
+    I’ve now put a 0.25 second delay in the code before it rights to the %\n text on the scan read queue and I’ll renable the logging function. This still didn’t fix the problem.
+    FIXED: I’ve created two log queues. Both are of type write. qLog_write1 is the main queue the
+6.	When I perform a scan and there is an overcurrent error on the pusher axis, the program does close after the GUI closes.
+    I changed the scan process to be daemon so it can run in the background when the GUI closes
+7.	When the user presses start scan and there is no data in the boxes I get a value error when trying to convert nothing to a float
+    FIXED, I first checked if the entry.get() method returned an empty string
+8.	When performing a scan, the pusher faulted and the scanhead kept moving until it was at the end of it’s move.
+    FIXED, I updated the scan sequence to check the pusher and the index status at the same time.
+9.  When an axis faults during a scan, the log file is populated with many many entries which say "LOG SAN PAUSED"
+    FIXED, I check the is_paused variable. If this is the first time the pause() method is called the log file is updated.
+10. When the ESTOP button is pressed every second the log file is updated when the commands to "DISABLE SCANHEAD" and "DISABLE PUSHER"
+    FIXED, there was a conditional == which was changed to = to set the estop flag correctly. 

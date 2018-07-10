@@ -878,6 +878,9 @@ class ScanThread(threading.Thread):
 
     # This method is called when the "PAUSE" button is pressed or an axis has faulted
     def pause(self):
+        # If this is the first time calling pause, put an entry in the log book.
+        if (self._is_paused == 0):
+            TIMC.acmd("LOG", "LOG SCAN PAUSED \n")
         self._is_paused = 1
         TIMC.acmd(self.queue, "ABORT SCANHEAD")
         TIMC.acmd(self.queue, "ABORT PUSHER")
@@ -888,8 +891,6 @@ class ScanThread(threading.Thread):
         TIMC.pusher.enableButton.config(state="normal")
         # The move times are recorded for the running average so the elapsed timer must be paused
         self.movement_elapsed_time = time.time() - self.movement_start_time
-        # Create entry in log book
-        TIMC.acmd("LOG", "LOG SCAN PAUSED \n")
 
     # This method is called when the "RESUME" button is pressed
     def resume(self):
@@ -1017,9 +1018,9 @@ class UpdateStatus(threading.Thread):
                     TIMC.fault.update_status("ESTOP was pressed")
                     TIMC.scanhead.disable_axis()
                     TIMC.pusher.disable_axis()
-                    self.estop_flag == 1
+                    self.estop_flag = 1
             else:
-                self.estop_flag == 0
+                self.estop_flag = 0
 
             faultMask = 1
             # If there is a fault and scanhead is not yet disabled
