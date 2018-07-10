@@ -4,3 +4,14 @@ Setting up a new laptop:
 3.  Install GIT
 4.  Install pyserial
 
+Example code to get parameter from Ensemble:
+import serial
+
+# This works if ParameterNames.cfg has been loaded onto the Ensemble drive
+s = serial.Serial("COM20", 115200, timeout = 0.05)
+text = "GETPARM (PUSHER, GainKpos)"
+#text = "MOVEABS PUSHER 0.5 F 1"
+command = text.encode('ascii') + b' \n'
+s.write(command)
+print(s.readline().decode('ascii'))
+s.close()
