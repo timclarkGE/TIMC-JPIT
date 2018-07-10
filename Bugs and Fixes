@@ -47,4 +47,4 @@ Functional Testing:
 9.  When an axis faults during a scan, the log file is populated with many many entries which say "LOG SAN PAUSED"
     FIXED, I check the is_paused variable. If this is the first time the pause() method is called the log file is updated.
 10. When the ESTOP button is pressed every second the log file is updated when the commands to "DISABLE SCANHEAD" and "DISABLE PUSHER"
-    FIXED, there was a conditional == which was changed to = to set the estop flag correctly. 
+    FIXED, there was a conditional == which was changed to = to set the estop flag correctly.
