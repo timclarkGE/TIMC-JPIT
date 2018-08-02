@@ -62,7 +62,7 @@ class SetupScanheadFrame:
         self.jogText1 = "CCW"
         self.jogText2 = "CW"
         self.speedMin = 0.5
-        self.speedMax = 20
+        self.speedMax = 15
         self.speedRes = 0.5
         self.maxError = 0.22
         self.queue_name = "CTRL"
@@ -85,7 +85,7 @@ class SetupScanFrame:
     def __init__(self):
         self.axisName = "SCAN WINDOW"
         self.scanSpeedMin = 0.5
-        self.scanSpeedMax = 20
+        self.scanSpeedMax = 15
         self.scanSpeedRes = 0.5
         self.indexSpeedMin = 0.05
         self.indexSpeedMax = 1
