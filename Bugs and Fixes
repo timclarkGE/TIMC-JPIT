@@ -48,3 +48,8 @@ Functional Testing:
     FIXED, I check the is_paused variable. If this is the first time the pause() method is called the log file is updated.
 10. When the ESTOP button is pressed every second the log file is updated when the commands to "DISABLE SCANHEAD" and "DISABLE PUSHER"
     FIXED, there was a conditional == which was changed to = to set the estop flag correctly.
+BETA Revision 1 Fixes
+11. When you hit the ESTOP the axis are disabled, but when you press "Fault Reset" with the ESTOP still pressed the program does not notify the user and simply won't allow you to enable an axis
+    FIXED: I've removed the estop flag so this won't happen. Now in the log file after an ESTOP is pressed there are many entries for the axis being disabled.
+12. When the vega card or the BEI isolator faults or is powered down, the program does not notify the user that there is a feedback fault it simply won't allow the user to enable the axis.
+    FIXED: Now when the user tries to enable the axis again a PositionFeedback Fault is shown.
