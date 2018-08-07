@@ -422,6 +422,8 @@
         <P n="RequiredStageSerialNumber">
         </P>
         <P n="AxisName">SCANHEAD</P>
+        <P n="StepperDampingGain">0</P>
+        <P n="StepperDampingCutoffFrequency">150</P>
       </Axis>
       <Axis exists="true" number="1">
         <P n="AxisType">0</P>
@@ -738,6 +740,8 @@
         <P n="RequiredStageSerialNumber">
         </P>
         <P n="AxisName">PUSHER</P>
+        <P n="StepperDampingGain">0</P>
+        <P n="StepperDampingCutoffFrequency">150</P>
       </Axis>
       <Axis exists="false" number="2">
         <P n="AxisType">0</P>
@@ -3387,7 +3391,7 @@
   </Parameters>
   <Data>
     <FileInfo>
-      <InterfaceVersion>5.5.6.10</InterfaceVersion>
+      <InterfaceVersion>5.6.1.8</InterfaceVersion>
     </FileInfo>
     <OldestCompatibleParameterFileVersion>3.3</OldestCompatibleParameterFileVersion>
   </Data>
