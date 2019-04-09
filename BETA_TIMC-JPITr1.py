@@ -54,8 +54,8 @@ SCAN_THREAD_WAIT = 0.25
 # Define classes with variables associated with each type of frame
 class SetupMainWindow:
     def __init__(self):
-        self.gui_width = 485
-        self.gui_height = 555
+        self.gui_width = 605
+        self.gui_height = 705
         self.baud = 115200
 
 
@@ -313,41 +313,40 @@ class AxisFrame:
         self.mtr_error = StringVar()
         self.queue = parameters.queue_name
 
-        self.enableButton = Button(self.canvas, text="OFF", fg="black", bg="#d3d3d3", height=2, width=6, padx=3, pady=3,
-                                   command=lambda: self.toggle_axis())
-        self.jog_neg = Button(self.canvas, text=parameters.jogText1, activeforeground="black",
-                              activebackground="#00aa00",
-                              bg="#00aa00", width=10, state=DISABLED)
-        self.jog_pos = Button(self.canvas, text=parameters.jogText2, activeforeground="black",
-                              activebackground="#00aa00",
-                              bg="#00aa00", width=10, state=DISABLED)
-        self.set_pos = Button(self.canvas, text=" Set ", activeforeground="black", activebackground="#00aa00",
-                              bg="#00aa00",
-                              state=DISABLED, command=lambda: self.set_position())
-        self.go_to = Button(self.canvas, text="GoTo", activeforeground="black", activebackground="#00aa00",
-                            bg="#00aa00",
-                            state=DISABLED, command=lambda: self.move_to())
-        self.inc = Button(self.canvas, text="Index", activeforeground="black", activebackground="#00aa00", bg="#00aa00",
+        self.enableButton = Button(self.canvas, text="OFF", font="Courier, 12", fg="black", bg="#d3d3d3", height=2, width=6,
+                                   padx=3, pady=3, command=lambda: self.toggle_axis())
+        self.jog_neg = Button(self.canvas, text=parameters.jogText1, font="Courier, 12", activeforeground="black",
+                              activebackground="#00aa00", bg="#00aa00", width=10, state=DISABLED)
+        self.jog_pos = Button(self.canvas, text=parameters.jogText2, font="Courier, 12", activeforeground="black",
+                              activebackground="#00aa00", bg="#00aa00", width=10, state=DISABLED)
+        self.set_pos = Button(self.canvas, text=" Set ", font="Courier, 12", activeforeground="black",
+                              activebackground="#00aa00", bg="#00aa00", state=DISABLED,
+                              command=lambda: self.set_position())
+        self.go_to = Button(self.canvas, text="GoTo", font="Courier, 12", activeforeground="black",
+                            activebackground="#00aa00",
+                            bg="#00aa00", state=DISABLED, command=lambda: self.move_to())
+        self.inc = Button(self.canvas, text="Index", font="Courier, 12", activeforeground="black",
+                          activebackground="#00aa00", bg="#00aa00",
                           state=DISABLED, command=lambda: self.move_inc())
-        self.mtrPositionBox = Entry(self.canvas, state="readonly", width=10, textvariable=self.mtr_position)
-        self.mtrCurrentBox = Entry(self.canvas, state="readonly", width=10, textvariable=self.mtr_current)
-        self.e_setPos = Entry(self.canvas, width=10)
-        self.e_goTo = Entry(self.canvas, width=10)
-        self.e_inc = Entry(self.canvas, width=10)
+        self.mtrPositionBox = Entry(self.canvas, state="readonly", width=8, textvariable=self.mtr_position, font="Courier, 12")
+        self.mtrCurrentBox = Entry(self.canvas, state="readonly", width=8, textvariable=self.mtr_current, font="Courier, 12")
+        self.e_setPos = Entry(self.canvas, width=8, font="Courier, 12")
+        self.e_goTo = Entry(self.canvas, width=8, font="Courier, 12")
+        self.e_inc = Entry(self.canvas, width=8, font="Courier, 12")
         self.vel = Scale(self.canvas, from_=parameters.speedMin, to=parameters.speedMax, orient=HORIZONTAL, length=150,
-                         label="            Velocity " + parameters.axisUnits + "/sec", resolution=parameters.speedRes)
+                         label="     Velocity " + parameters.axisUnits + "/sec", font="Courier, 12", resolution=parameters.speedRes)
         self.vel.set((parameters.speedMax - parameters.speedMin) * 0.25)
         self.vel.config(state="disabled")
         self.label_0 = Label(self.canvas, text=parameters.axisName, height=1, font=("Helvetica", 14))
-        self.label_1 = Label(self.canvas, text="Pos. (" + parameters.axisUnits + ")")
-        self.label_2 = Label(self.canvas, text="Cur. (mA)")
-        self.label_3 = Label(self.canvas, text="Pos. Error")
+        self.label_1 = Label(self.canvas, text="Pos. (" + parameters.axisUnits + ")", font="Courier, 12")
+        self.label_2 = Label(self.canvas, text="Cur. (mA)", font="Courier, 12")
+        self.label_3 = Label(self.canvas, text="Pos. Error", font="Courier, 12")
 
         # Draw box for position error that looks like disabled entry box.
-        self.canvas.create_line(400, 29, 463, 29, fill="#A0A0A0")
-        self.canvas.create_line(400, 29, 400, 47, fill="#A0A0A0")
-        self.canvas.create_line(400, 47, 464, 47, fill="white")
-        self.canvas.create_line(463, 51, 463, 48, fill="white")
+        #self.canvas.create_line(400, 29, 463, 29, fill="#A0A0A0")
+        #self.canvas.create_line(400, 29, 400, 47, fill="#A0A0A0")
+        #self.canvas.create_line(400, 47, 464, 47, fill="white")
+        #self.canvas.create_line(463, 51, 463, 48, fill="white")
 
         # GRID
         self.label_0.grid(row=0, column=0, columnspan=5, sticky=W)
@@ -357,15 +356,15 @@ class AxisFrame:
         self.label_1.grid(row=0, column=3, sticky=S)
         self.label_2.grid(row=0, column=4, sticky=S)
         self.label_3.grid(row=0, column=5, sticky=S)
-        self.mtrPositionBox.grid(row=1, column=3, padx=3)
-        self.mtrCurrentBox.grid(row=1, column=4, padx=3)
-        self.e_setPos.grid(row=3, column=3, padx=2)
-        self.e_goTo.grid(row=3, column=4, padx=2)
-        self.e_inc.grid(row=3, column=5, padx=2)
-        self.set_pos.grid(row=4, column=3, pady=5)
-        self.go_to.grid(row=4, column=4, pady=5)
-        self.inc.grid(row=4, column=5, pady=5)
-        self.vel.grid(row=3, column=1, columnspan=2, rowspan=2)
+        self.mtrPositionBox.grid(row=1, column=3, padx=10)
+        self.mtrCurrentBox.grid(row=1, column=4, padx=10)
+        self.e_setPos.grid(row=3, column=3, padx=2, sticky=S)
+        self.e_goTo.grid(row=3, column=4, padx=2, sticky=S)
+        self.e_inc.grid(row=3, column=5, padx=2, sticky=S)
+        self.set_pos.grid(row=4, column=3, pady=5, sticky=N)
+        self.go_to.grid(row=4, column=4, pady=5, sticky=N)
+        self.inc.grid(row=4, column=5, pady=5, sticky=N)
+        self.vel.grid(row=3, column=1, columnspan=2, rowspan=2, pady=25)
 
         # When the user clicks jog button or releases the button click these functions are called to jog the axis
         self.jog_pos.bind('<ButtonPress-1>', lambda event: self.jog_positive())
@@ -491,48 +490,48 @@ class ScanFrame:
         self.queue = parameters.queue_name
 
         # LEFT FRAME WIDGETS
-        self.start = Button(topFrame, text="START", activeforeground="black", activebackground="#00aa00",
+        self.start = Button(topFrame, text="START", font="Courier, 12", activeforeground="black", activebackground="#00aa00",
                             bg="#00aa00", width=10, command=lambda: self.start_scan())
-        self.stop = Button(topFrame, text="STOP", activeforeground="black", activebackground="#00aa00",
+        self.stop = Button(topFrame, text="STOP", font="Courier, 12", activeforeground="black", activebackground="#00aa00",
                            bg="#00aa00", width=10, state=DISABLED, command=lambda: self.stop_scan())
         self.pause = Button(topFrame, text="PAUSE", activeforeground="black", activebackground="#00aa00",
-                            bg="#00aa00", width=10, state=DISABLED, command=lambda: self.pause_scan())
+                            bg="#00aa00", width=8, state=DISABLED, command=lambda: self.pause_scan())
         self.resume = Button(topFrame, text="RESUME", activeforeground="black",
-                             activebackground="#00aa00", bg="#00aa00", width=10, state=DISABLED,
+                             activebackground="#00aa00", bg="#00aa00", width=8, state=DISABLED,
                              command=lambda: self.resume_scan())
         self.scanVelocity = Scale(leftFrame, from_=parameters.scanSpeedMin, to=parameters.scanSpeedMax,
                                   orient=HORIZONTAL,
-                                  length=150,
-                                  label="        Scan Speed " + parameters.scanAxisUnits + "/sec",
+                                  length=175,
+                                  label="  Scan Speed " + parameters.scanAxisUnits + "/sec", font="Courier, 12",
                                   resolution=parameters.scanSpeedRes)
         self.indexVelocity = Scale(leftFrame, from_=parameters.indexSpeedMin, to=parameters.indexSpeedMax,
                                    orient=HORIZONTAL,
-                                   length=150,
-                                   label="        Index Speed " + parameters.indexAxisUnits + "/sec",
+                                   length=175,
+                                   label="    Index Speed " + parameters.indexAxisUnits + "/sec", font="Courier, 12",
                                    resolution=parameters.indexSpeedRes)
         self.scanVelocity.set((parameters.scanSpeedMax - parameters.scanSpeedMin) * 0.25)
         self.indexVelocity.set((parameters.indexSpeedMax - parameters.indexSpeedMin) * 0.25)
         self.label_0 = Label(topFrame, text=parameters.axisName, height=1, font=("Helvetica", 14))
-        self.label_1 = Label(rightFrame, text="Scan Start (deg)")
-        self.label_2 = Label(rightFrame, text="Scan Stop (deg)")
-        self.label_3 = Label(rightFrame, text="Index Start (in)")
-        self.label_4 = Label(rightFrame, text="Index Stop (in)")
-        self.label_5 = Label(rightFrame, text="Index Size (in)")
-        self.label_6 = Label(middleFrame, text="Remaining Time")
+        self.label_1 = Label(rightFrame, text="Scan Start (deg)", font="Courier, 12")
+        self.label_2 = Label(rightFrame, text="Scan Stop (deg)", font="Courier, 12")
+        self.label_3 = Label(rightFrame, text="Index Start (in)", font="Courier, 12")
+        self.label_4 = Label(rightFrame, text="Index Stop (in)", font="Courier, 12")
+        self.label_5 = Label(rightFrame, text="Index Size (in)", font="Courier, 12")
+        self.label_6 = Label(middleFrame, text="Remaining Time", font="Courier, 12")
 
-        self.e_scanStart = Entry(rightFrame, width=10)
-        self.e_scanStop = Entry(rightFrame, width=10)
-        self.e_indexStart = Entry(rightFrame, width=10)
-        self.e_indexStop = Entry(rightFrame, width=10)
-        self.e_indexSize = Entry(rightFrame, width=10)
-        self.radio_0 = Radiobutton(middleFrame, text="Bi-directional", variable=self.scanType, value=0)
-        self.radio_1 = Radiobutton(middleFrame, text="Uni-directional", variable=self.scanType, value=1)
-        self.time = Entry(middleFrame, state="readonly", width=10, textvariable=self.scanTimeText)
+        self.e_scanStart = Entry(rightFrame, width=8, font="Courier, 12")
+        self.e_scanStop = Entry(rightFrame, width=8, font="Courier, 12")
+        self.e_indexStart = Entry(rightFrame, width=8, font="Courier, 12")
+        self.e_indexStop = Entry(rightFrame, width=8, font="Courier, 12")
+        self.e_indexSize = Entry(rightFrame, width=8, font="Courier, 12")
+        self.radio_0 = Radiobutton(middleFrame, text="Bi-directional", font="Courier, 12", variable=self.scanType, value=0)
+        self.radio_1 = Radiobutton(middleFrame, text="Uni-directional", font="Courier, 12", variable=self.scanType, value=1)
+        self.time = Entry(middleFrame, state="readonly", width=8, font="Courier, 12", textvariable=self.scanTimeText)
         self.scan_flag = 0
 
         # GRID TOP
-        rowSpaceTop = 18
-        self.label_0.grid(row=0, column=0, columnspan=4, sticky=W)
+        rowSpaceTop = 32
+        self.label_0.grid(row=0, column=0, columnspan=5, sticky=W)
         self.start.grid(row=1, column=0, pady=5, padx=rowSpaceTop)
         self.stop.grid(row=1, column=1, pady=5, padx=rowSpaceTop)
         self.pause.grid(row=1, column=2, pady=5, padx=rowSpaceTop)
@@ -947,10 +946,9 @@ class FaultFrame():
         self.status_text = StringVar()
 
         self.label_0 = Label(self.canvas, text="FAULT STATUS", height=1, font=("Helvetica", 14))
-        self.button = Button(self.canvas, text="FAULT\nRESET", fg="black", bg="#d3d3d3", height=2, width=5,
-                             command=lambda: self.fault_ack())
-        # self.label_0 = Label(canvas, text="GE HITACHI", height=2, font=("Helvetica", 10))
-        self.entry = Entry(self.canvas, width=59, textvariable=self.status_text)
+        self.button = Button(self.canvas, text="FAULT\nRESET", font="Courier, 12", fg="black", bg="#d3d3d3", height=2,
+                             width=6, command=lambda: self.fault_ack())
+        self.entry = Entry(self.canvas, width=50, textvariable=self.status_text, font="Courier, 12")
         self.label_0.grid(row=0, column=0, columnspan=2, sticky=W)
         self.entry.grid(row=1, column=0, columnspan=2, padx=30)
         self.button.grid(row=1, column=2, pady=5, padx=5)
