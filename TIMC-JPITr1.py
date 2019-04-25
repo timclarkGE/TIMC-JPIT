@@ -3,8 +3,14 @@
 # Tool: Jet Pump Inspection Tool             #
 # PLM Code Storage:  DOC-0009-1257           #
 # PLM Parameter File Storage: DOC-0009-1258  #
-# Code Revision: 0                           #
+# Code Revision: 1                           #
 ##############################################
+# Revision Updates:
+#   <> Fault status was called for each axis separated by 0.5 seconds, now I call both simultaneously and then wait 1 second
+#   <> When checking for a fault, I no longer check if the axis state is enabled. Lines: 1029 and 1037
+#   <> Removed estop flag
+#   <> Updated logic related to start, stop, and index size. Previously I used modulo on non integers which was causing errors
+#   <> Updated the look and feel of the GUI. Buttons bigger, bolded text, etc.
 
 # Author:   Timothy Clark
 # Email:    timoty.clark@ge.com
@@ -50,8 +56,8 @@ SCAN_THREAD_WAIT = 0.25
 # Define classes with variables associated with each type of frame
 class SetupMainWindow:
     def __init__(self):
-        self.gui_width = 485
-        self.gui_height = 555
+        self.gui_width = 605
+        self.gui_height = 695
         self.baud = 115200
 
 
@@ -62,7 +68,7 @@ class SetupScanheadFrame:
         self.jogText1 = "CCW"
         self.jogText2 = "CW"
         self.speedMin = 0.5
-        self.speedMax = 15
+        self.speedMax = 20
         self.speedRes = 0.5
         self.maxError = 0.22
         self.queue_name = "CTRL"
@@ -77,7 +83,7 @@ class SetupPusherFrame:
         self.speedMin = 0.05
         self.speedMax = 1
         self.speedRes = 0.05
-        self.maxError = 1
+        self.maxError = 0.1
         self.queue_name = "CTRL"
 
 
@@ -85,7 +91,7 @@ class SetupScanFrame:
     def __init__(self):
         self.axisName = "SCAN WINDOW"
         self.scanSpeedMin = 0.5
-        self.scanSpeedMax = 15
+        self.scanSpeedMax = 20
         self.scanSpeedRes = 0.5
         self.indexSpeedMin = 0.05
         self.indexSpeedMax = 1
@@ -125,7 +131,7 @@ class MainWindow:
         # Create the main GUI window
         self.master = master
         master.geometry(str(parameters.gui_width) + "x" + str(parameters.gui_height))
-        master.title("Tooling Inspection Motion Controller - Jet Pump Inspection Tool")
+        master.title("R1: Tooling Inspection Motion Controller - Jet Pump Inspection Tool")
 
         # Create frames for each axis and function
         self.scanhead = AxisFrame(self.master, SetupScanheadFrame())
@@ -309,41 +315,41 @@ class AxisFrame:
         self.mtr_error = StringVar()
         self.queue = parameters.queue_name
 
-        self.enableButton = Button(self.canvas, text="OFF", fg="black", bg="#d3d3d3", height=2, width=6, padx=3, pady=3,
-                                   command=lambda: self.toggle_axis())
-        self.jog_neg = Button(self.canvas, text=parameters.jogText1, activeforeground="black",
-                              activebackground="#00aa00",
-                              bg="#00aa00", width=10, state=DISABLED)
-        self.jog_pos = Button(self.canvas, text=parameters.jogText2, activeforeground="black",
-                              activebackground="#00aa00",
-                              bg="#00aa00", width=10, state=DISABLED)
-        self.set_pos = Button(self.canvas, text=" Set ", activeforeground="black", activebackground="#00aa00",
-                              bg="#00aa00",
-                              state=DISABLED, command=lambda: self.set_position())
-        self.go_to = Button(self.canvas, text="GoTo", activeforeground="black", activebackground="#00aa00",
-                            bg="#00aa00",
-                            state=DISABLED, command=lambda: self.move_to())
-        self.inc = Button(self.canvas, text="Index", activeforeground="black", activebackground="#00aa00", bg="#00aa00",
+        self.enableButton = Button(self.canvas, text="OFF", font="Courier, 12", fg="black", bg="#d3d3d3", height=2, width=6,
+                                   padx=3, pady=3, command=lambda: self.toggle_axis())
+        self.jog_neg = Button(self.canvas, text=parameters.jogText1, font="Courier, 12", activeforeground="black",
+                              activebackground="#00aa00", bg="#00aa00", width=10, state=DISABLED)
+        self.jog_pos = Button(self.canvas, text=parameters.jogText2, font="Courier, 12", activeforeground="black",
+                              activebackground="#00aa00", bg="#00aa00", width=10, state=DISABLED)
+        self.set_pos = Button(self.canvas, text=" Set ", font="Courier, 12", activeforeground="black",
+                              activebackground="#00aa00", bg="#00aa00", state=DISABLED,
+                              command=lambda: self.set_position())
+        self.go_to = Button(self.canvas, text="GoTo", font="Courier, 12", activeforeground="black",
+                            activebackground="#00aa00",
+                            bg="#00aa00", state=DISABLED, command=lambda: self.move_to())
+        self.inc = Button(self.canvas, text="Index", font="Courier, 12", activeforeground="black",
+                          activebackground="#00aa00", bg="#00aa00",
                           state=DISABLED, command=lambda: self.move_inc())
-        self.mtrPositionBox = Entry(self.canvas, state="readonly", width=10, textvariable=self.mtr_position)
-        self.mtrCurrentBox = Entry(self.canvas, state="readonly", width=10, textvariable=self.mtr_current)
-        self.e_setPos = Entry(self.canvas, width=10)
-        self.e_goTo = Entry(self.canvas, width=10)
-        self.e_inc = Entry(self.canvas, width=10)
+        self.mtrPositionBox = Entry(self.canvas, state="readonly", width=8, textvariable=self.mtr_position, font="Courier, 12 bold")
+        self.mtrCurrentBox = Entry(self.canvas, state="readonly", width=8, textvariable=self.mtr_current, font="Courier, 12")
+        self.e_setPos = Entry(self.canvas, width=8, font="Courier, 12")
+        self.e_goTo = Entry(self.canvas, width=8, font="Courier, 12")
+        self.e_inc = Entry(self.canvas, width=8, font="Courier, 12")
         self.vel = Scale(self.canvas, from_=parameters.speedMin, to=parameters.speedMax, orient=HORIZONTAL, length=150,
-                         label="            Velocity " + parameters.axisUnits + "/sec", resolution=parameters.speedRes)
+                         label="     Velocity " + parameters.axisUnits + "/sec", font="Courier, 12", resolution=parameters.speedRes)
         self.vel.set((parameters.speedMax - parameters.speedMin) * 0.25)
         self.vel.config(state="disabled")
         self.label_0 = Label(self.canvas, text=parameters.axisName, height=1, font=("Helvetica", 14))
-        self.label_1 = Label(self.canvas, text="Pos. (" + parameters.axisUnits + ")")
-        self.label_2 = Label(self.canvas, text="Cur. (mA)")
-        self.label_3 = Label(self.canvas, text="Pos. Error")
+        self.label_1 = Label(self.canvas, text="Pos. (" + parameters.axisUnits + ")", font="Courier, 12")
+        self.label_2 = Label(self.canvas, text="Cur. (mA)", font="Courier, 12")
+        self.label_3 = Label(self.canvas, text="Pos. Error", font="Courier, 12")
 
         # Draw box for position error that looks like disabled entry box.
-        self.canvas.create_line(400, 29, 463, 29, fill="#A0A0A0")
-        self.canvas.create_line(400, 29, 400, 47, fill="#A0A0A0")
-        self.canvas.create_line(400, 47, 464, 47, fill="white")
-        self.canvas.create_line(463, 51, 463, 48, fill="white")
+        self.canvas.create_line(504, 30, 579, 30, fill="#A0A0A0")
+        self.canvas.create_line(504, 30, 504, 51, fill="#A0A0A0")
+        self.canvas.create_line(504, 51, 579, 51, fill="white")
+        self.canvas.create_line(579, 51, 579, 29, fill="white")
+
         # GRID
         self.label_0.grid(row=0, column=0, columnspan=5, sticky=W)
         self.enableButton.grid(row=1, column=0, rowspan=3, padx=15)
@@ -352,15 +358,15 @@ class AxisFrame:
         self.label_1.grid(row=0, column=3, sticky=S)
         self.label_2.grid(row=0, column=4, sticky=S)
         self.label_3.grid(row=0, column=5, sticky=S)
-        self.mtrPositionBox.grid(row=1, column=3, padx=3)
-        self.mtrCurrentBox.grid(row=1, column=4, padx=3)
-        self.e_setPos.grid(row=3, column=3, padx=2)
-        self.e_goTo.grid(row=3, column=4, padx=2)
-        self.e_inc.grid(row=3, column=5, padx=2)
-        self.set_pos.grid(row=4, column=3, pady=5)
-        self.go_to.grid(row=4, column=4, pady=5)
-        self.inc.grid(row=4, column=5, pady=5)
-        self.vel.grid(row=3, column=1, columnspan=2, rowspan=2)
+        self.mtrPositionBox.grid(row=1, column=3, padx=10)
+        self.mtrCurrentBox.grid(row=1, column=4, padx=10)
+        self.e_setPos.grid(row=3, column=3, padx=2, sticky=S)
+        self.e_goTo.grid(row=3, column=4, padx=2, sticky=S)
+        self.e_inc.grid(row=3, column=5, padx=2, sticky=S)
+        self.set_pos.grid(row=4, column=3, pady=5, sticky=N)
+        self.go_to.grid(row=4, column=4, pady=5, sticky=N)
+        self.inc.grid(row=4, column=5, pady=5, sticky=N)
+        self.vel.grid(row=3, column=1, columnspan=2, rowspan=2, pady=22)
 
         # When the user clicks jog button or releases the button click these functions are called to jog the axis
         self.jog_pos.bind('<ButtonPress-1>', lambda event: self.jog_positive())
@@ -369,7 +375,7 @@ class AxisFrame:
         self.jog_neg.bind('<ButtonRelease-1>', lambda event: self.stop_jog())
 
         # A red box is drawn to represent position error and the previous box is deleted. This is initializes the first drawn box
-        self.red_square = red_square = self.canvas.create_rectangle(401, 30, 401 + 61, 46, fill="SystemButtonFace", outline="SystemButtonFace")
+        self.red_square = red_square = self.canvas.create_rectangle(505, 31, 505 + 61, 50, fill="SystemButtonFace", outline="SystemButtonFace")
 
 
     def toggle_axis(self):
@@ -448,14 +454,14 @@ class AxisFrame:
 
     def updatePosError(self, error):
         # Max Error for x1 = 401+61 = 462
-        calc_error = int(abs((error / self.max_pos_error)) * 61)
+        calc_error = int(abs((error / self.max_pos_error)) * 73)
         # 61 pixels is the maximum length of the box
-        if (calc_error > 61):
-            calc_error = 61
-        x0 = 401
-        y0 = 30
+        if (calc_error > 73):
+            calc_error = 73
+        x0 = 505
+        y0 = 31
         x1 = x0 + calc_error
-        y1 = 46
+        y1 = 50
 
         # Delete the old representation of position error
         self.canvas.delete(self.red_square)
@@ -486,48 +492,48 @@ class ScanFrame:
         self.queue = parameters.queue_name
 
         # LEFT FRAME WIDGETS
-        self.start = Button(topFrame, text="START", activeforeground="black", activebackground="#00aa00",
+        self.start = Button(topFrame, text="START", font="Courier, 12 bold", activeforeground="black", activebackground="#00aa00",
                             bg="#00aa00", width=10, command=lambda: self.start_scan())
-        self.stop = Button(topFrame, text="STOP", activeforeground="black", activebackground="#00aa00",
+        self.stop = Button(topFrame, text="STOP", font="Courier, 12 bold", activeforeground="black", activebackground="#00aa00",
                            bg="#00aa00", width=10, state=DISABLED, command=lambda: self.stop_scan())
         self.pause = Button(topFrame, text="PAUSE", activeforeground="black", activebackground="#00aa00",
-                            bg="#00aa00", width=10, state=DISABLED, command=lambda: self.pause_scan())
+                            bg="#00aa00", width=8, state=DISABLED, command=lambda: self.pause_scan())
         self.resume = Button(topFrame, text="RESUME", activeforeground="black",
-                             activebackground="#00aa00", bg="#00aa00", width=10, state=DISABLED,
+                             activebackground="#00aa00", bg="#00aa00", width=8, state=DISABLED,
                              command=lambda: self.resume_scan())
         self.scanVelocity = Scale(leftFrame, from_=parameters.scanSpeedMin, to=parameters.scanSpeedMax,
                                   orient=HORIZONTAL,
-                                  length=150,
-                                  label="        Scan Speed " + parameters.scanAxisUnits + "/sec",
+                                  length=175,
+                                  label="  Scan Speed " + parameters.scanAxisUnits + "/sec", font="Courier, 12",
                                   resolution=parameters.scanSpeedRes)
         self.indexVelocity = Scale(leftFrame, from_=parameters.indexSpeedMin, to=parameters.indexSpeedMax,
                                    orient=HORIZONTAL,
-                                   length=150,
-                                   label="        Index Speed " + parameters.indexAxisUnits + "/sec",
+                                   length=175,
+                                   label="    Index Speed " + parameters.indexAxisUnits + "/sec", font="Courier, 12",
                                    resolution=parameters.indexSpeedRes)
         self.scanVelocity.set((parameters.scanSpeedMax - parameters.scanSpeedMin) * 0.25)
         self.indexVelocity.set((parameters.indexSpeedMax - parameters.indexSpeedMin) * 0.25)
         self.label_0 = Label(topFrame, text=parameters.axisName, height=1, font=("Helvetica", 14))
-        self.label_1 = Label(rightFrame, text="Scan Start (deg)")
-        self.label_2 = Label(rightFrame, text="Scan Stop (deg)")
-        self.label_3 = Label(rightFrame, text="Index Start (in)")
-        self.label_4 = Label(rightFrame, text="Index Stop (in)")
-        self.label_5 = Label(rightFrame, text="Index Size (in)")
-        self.label_6 = Label(middleFrame, text="Remaining Time")
+        self.label_1 = Label(rightFrame, text="Scan Start (deg)", font="Courier, 12")
+        self.label_2 = Label(rightFrame, text="Scan Stop (deg)", font="Courier, 12")
+        self.label_3 = Label(rightFrame, text="Index Start (in)", font="Courier, 12")
+        self.label_4 = Label(rightFrame, text="Index Stop (in)", font="Courier, 12")
+        self.label_5 = Label(rightFrame, text="Index Size (in)", font="Courier, 12")
+        self.label_6 = Label(middleFrame, text="Remaining Time", font="Courier, 12")
 
-        self.e_scanStart = Entry(rightFrame, width=10)
-        self.e_scanStop = Entry(rightFrame, width=10)
-        self.e_indexStart = Entry(rightFrame, width=10)
-        self.e_indexStop = Entry(rightFrame, width=10)
-        self.e_indexSize = Entry(rightFrame, width=10)
-        self.radio_0 = Radiobutton(middleFrame, text="Bi-directional", variable=self.scanType, value=0)
-        self.radio_1 = Radiobutton(middleFrame, text="Uni-directional", variable=self.scanType, value=1)
-        self.time = Entry(middleFrame, state="readonly", width=10, textvariable=self.scanTimeText)
+        self.e_scanStart = Entry(rightFrame, width=8, font="Courier, 12")
+        self.e_scanStop = Entry(rightFrame, width=8, font="Courier, 12")
+        self.e_indexStart = Entry(rightFrame, width=8, font="Courier, 12")
+        self.e_indexStop = Entry(rightFrame, width=8, font="Courier, 12")
+        self.e_indexSize = Entry(rightFrame, width=8, font="Courier, 12")
+        self.radio_0 = Radiobutton(middleFrame, text="Bi-directional", font="Courier, 12", variable=self.scanType, value=0)
+        self.radio_1 = Radiobutton(middleFrame, text="Uni-directional", font="Courier, 12", variable=self.scanType, value=1)
+        self.time = Entry(middleFrame, state="readonly", width=8, font="Courier, 12", textvariable=self.scanTimeText)
         self.scan_flag = 0
 
         # GRID TOP
-        rowSpaceTop = 18
-        self.label_0.grid(row=0, column=0, columnspan=4, sticky=W)
+        rowSpaceTop = 32
+        self.label_0.grid(row=0, column=0, columnspan=5, sticky=W)
         self.start.grid(row=1, column=0, pady=5, padx=rowSpaceTop)
         self.stop.grid(row=1, column=1, pady=5, padx=rowSpaceTop)
         self.pause.grid(row=1, column=2, pady=5, padx=rowSpaceTop)
@@ -570,7 +576,7 @@ class ScanFrame:
                 return
             # If there is a negative sign
             if("-" in check_data[i]):
-                # There should only be one and it should be at the beggining
+                # There should only be one and it should be at the beginning
                 if(check_data[i].count("-") == 1 and check_data[i].index('-') == 0):
                     # Remove the negative sign and continue to next check
                     check_data[i] = check_data[i].replace("-","",1)
@@ -610,7 +616,11 @@ class ScanFrame:
         if (self.index_stop > self.index_start):
             messagebox.showinfo("Bad Scan Input", "Index Start must be greater than Index Stop")
             return
-        if ((self.index_stop - self.index_start) % self.index_size > 0.000001):
+
+        rounded = round((self.index_stop - self.index_start) / self.index_size)
+        actual = (self.index_stop - self.index_start) / self.index_size
+
+        if (rounded != round(actual,10)):
             messagebox.showinfo("Bad Scan Input", "Index Size must be a multiple of Index Start - Index Stop")
             return
 
@@ -942,10 +952,9 @@ class FaultFrame():
         self.status_text = StringVar()
 
         self.label_0 = Label(self.canvas, text="FAULT STATUS", height=1, font=("Helvetica", 14))
-        self.button = Button(self.canvas, text="FAULT\nRESET", fg="black", bg="#d3d3d3", height=2, width=5,
-                             command=lambda: self.fault_ack())
-        # self.label_0 = Label(canvas, text="GE HITACHI", height=2, font=("Helvetica", 10))
-        self.entry = Entry(self.canvas, width=59, textvariable=self.status_text)
+        self.button = Button(self.canvas, text="FAULT\nRESET", font="Courier, 12", fg="black", bg="#d3d3d3", height=2,
+                             width=6, command=lambda: self.fault_ack())
+        self.entry = Entry(self.canvas, width=50, textvariable=self.status_text, font="Courier, 12")
         self.label_0.grid(row=0, column=0, columnspan=2, sticky=W)
         self.entry.grid(row=1, column=0, columnspan=2, padx=30)
         self.button.grid(row=1, column=2, pady=5, padx=5)
@@ -969,7 +978,6 @@ class UpdateStatus(threading.Thread):
     def __init__(self):
         threading.Thread.__init__(self)
         self._is_running = 1
-        self.estop_flag = 0
         # Aerotech defines a bit mapped variable for the type of fault, BIT
         self.fault_array = ["PositionError Fault",                      # 0
                             "OverCurrent Fault",                        # 1
@@ -1004,39 +1012,32 @@ class UpdateStatus(threading.Thread):
 
     def run(self):
         while(self._is_running):
-            # Spread out calls Aerotech drive on the status of each axis
-            time.sleep(0.5)
+            time.sleep(1)
             s_fault = int(TIMC.acmd("STATUS", "AXISFAULT (SCANHEAD)"))
-            time.sleep(0.5)
             p_fault = int(TIMC.acmd("STATUS", "AXISFAULT (PUSHER)"))
 
             # Bitwise AND the fault data with a mask to check specifically for ESTOP
             if (0b100000000000 & s_fault or 0b100000000000 & p_fault):
-                # Only alarm once for ESTOP
-                if(self.estop_flag == 0):
-                    TIMC.fault.update_status("ESTOP was pressed")
-                    TIMC.scanhead.disable_axis()
-                    TIMC.pusher.disable_axis()
-                    self.estop_flag = 1
-            else:
-                self.estop_flag = 0
-
-            faultMask = 1
-            # If there is a fault and scanhead is not yet disabled
-            if (s_fault != 0 and TIMC.scanhead.state):
+                TIMC.fault.update_status("ESTOP was pressed")
                 TIMC.scanhead.disable_axis()
-                # Create fault masks to bitwise AND the data to determine which type of fault has occured.
-                for i in range(0, len(self.fault_array)):
-                    if ((s_fault & (faultMask << i)) != 0):
-                        TIMC.fault.update_status("FAULT: Scanhead " + str(self.fault_array[i]))
-
-            # If there is a fault and pusher is not yet disabled
-            if (p_fault != 0 and TIMC.pusher.state):
                 TIMC.pusher.disable_axis()
-                # Create fault masks to bitwise AND the data to determine which type of fault has occured.
-                for i in range(0, len(self.fault_array)):
-                    if ((p_fault & (faultMask << i)) != 0):
-                        TIMC.fault.update_status("FAULT: Pusher " + str(self.fault_array[i]))
+            else:
+                faultMask = 1
+                # If there is a fault and scanhead is not yet disabled
+                if (s_fault != 0):
+                    TIMC.scanhead.disable_axis()
+                    # Create fault masks to bitwise AND the data to determine which type of fault has occured.
+                    for i in range(0, len(self.fault_array)):
+                        if ((s_fault & (faultMask << i)) != 0):
+                            TIMC.fault.update_status("FAULT: Scanhead " + str(self.fault_array[i]))
+
+                # If there is a fault and pusher is not yet disabled
+                if (p_fault != 0):
+                    TIMC.pusher.disable_axis()
+                    # Create fault masks to bitwise AND the data to determine which type of fault has occured.
+                    for i in range(0, len(self.fault_array)):
+                        if ((p_fault & (faultMask << i)) != 0):
+                            TIMC.fault.update_status("FAULT: Pusher " + str(self.fault_array[i]))
 
     def stop(self):
         self._is_running = 0
@@ -1196,6 +1197,7 @@ class UpdateLog(threading.Thread):
     def print_header(self):
         self.file.write("===============================================================\n")
         self.file.write("          Tooling Inspection Motion Controller - JPIT          \n")
+        self.file.write("                       Code Revision: 1                        \n")
         self.file.write("                         - LOG FILE -                          \n")
         self.file.write("===============================================================\n")
         self.file.write("Controller Initialized:\n")

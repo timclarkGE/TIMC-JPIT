@@ -3,7 +3,7 @@
 # Tool: Jet Pump Inspection Tool             #
 # PLM Code Storage:  DOC-0009-1257           #
 # PLM Parameter File Storage: DOC-0009-1258  #
-# Code Revision: 1 (BETA)                    #
+# Code Revision: 1                           #
 ##############################################
 # Revision Updates:
 #   <> Fault status was called for each axis separated by 0.5 seconds, now I call both simultaneously and then wait 1 second
@@ -55,7 +55,7 @@ SCAN_THREAD_WAIT = 0.25
 class SetupMainWindow:
     def __init__(self):
         self.gui_width = 605
-        self.gui_height = 705
+        self.gui_height = 695
         self.baud = 115200
 
 
@@ -129,7 +129,7 @@ class MainWindow:
         # Create the main GUI window
         self.master = master
         master.geometry(str(parameters.gui_width) + "x" + str(parameters.gui_height))
-        master.title("BETA: Tooling Inspection Motion Controller - Jet Pump Inspection Tool")
+        master.title("R1: Tooling Inspection Motion Controller - Jet Pump Inspection Tool")
 
         # Create frames for each axis and function
         self.scanhead = AxisFrame(self.master, SetupScanheadFrame())
@@ -328,7 +328,7 @@ class AxisFrame:
         self.inc = Button(self.canvas, text="Index", font="Courier, 12", activeforeground="black",
                           activebackground="#00aa00", bg="#00aa00",
                           state=DISABLED, command=lambda: self.move_inc())
-        self.mtrPositionBox = Entry(self.canvas, state="readonly", width=8, textvariable=self.mtr_position, font="Courier, 12")
+        self.mtrPositionBox = Entry(self.canvas, state="readonly", width=8, textvariable=self.mtr_position, font="Courier, 12 bold")
         self.mtrCurrentBox = Entry(self.canvas, state="readonly", width=8, textvariable=self.mtr_current, font="Courier, 12")
         self.e_setPos = Entry(self.canvas, width=8, font="Courier, 12")
         self.e_goTo = Entry(self.canvas, width=8, font="Courier, 12")
@@ -343,10 +343,10 @@ class AxisFrame:
         self.label_3 = Label(self.canvas, text="Pos. Error", font="Courier, 12")
 
         # Draw box for position error that looks like disabled entry box.
-        #self.canvas.create_line(400, 29, 463, 29, fill="#A0A0A0")
-        #self.canvas.create_line(400, 29, 400, 47, fill="#A0A0A0")
-        #self.canvas.create_line(400, 47, 464, 47, fill="white")
-        #self.canvas.create_line(463, 51, 463, 48, fill="white")
+        self.canvas.create_line(504, 30, 579, 30, fill="#A0A0A0")
+        self.canvas.create_line(504, 30, 504, 51, fill="#A0A0A0")
+        self.canvas.create_line(504, 51, 579, 51, fill="white")
+        self.canvas.create_line(579, 51, 579, 29, fill="white")
 
         # GRID
         self.label_0.grid(row=0, column=0, columnspan=5, sticky=W)
@@ -364,7 +364,7 @@ class AxisFrame:
         self.set_pos.grid(row=4, column=3, pady=5, sticky=N)
         self.go_to.grid(row=4, column=4, pady=5, sticky=N)
         self.inc.grid(row=4, column=5, pady=5, sticky=N)
-        self.vel.grid(row=3, column=1, columnspan=2, rowspan=2, pady=25)
+        self.vel.grid(row=3, column=1, columnspan=2, rowspan=2, pady=22)
 
         # When the user clicks jog button or releases the button click these functions are called to jog the axis
         self.jog_pos.bind('<ButtonPress-1>', lambda event: self.jog_positive())
@@ -373,7 +373,7 @@ class AxisFrame:
         self.jog_neg.bind('<ButtonRelease-1>', lambda event: self.stop_jog())
 
         # A red box is drawn to represent position error and the previous box is deleted. This is initializes the first drawn box
-        self.red_square = red_square = self.canvas.create_rectangle(401, 30, 401 + 61, 46, fill="SystemButtonFace", outline="SystemButtonFace")
+        self.red_square = red_square = self.canvas.create_rectangle(505, 31, 505 + 61, 50, fill="SystemButtonFace", outline="SystemButtonFace")
 
 
     def toggle_axis(self):
@@ -452,14 +452,14 @@ class AxisFrame:
 
     def updatePosError(self, error):
         # Max Error for x1 = 401+61 = 462
-        calc_error = int(abs((error / self.max_pos_error)) * 61)
+        calc_error = int(abs((error / self.max_pos_error)) * 73)
         # 61 pixels is the maximum length of the box
-        if (calc_error > 61):
-            calc_error = 61
-        x0 = 401
-        y0 = 30
+        if (calc_error > 73):
+            calc_error = 73
+        x0 = 505
+        y0 = 31
         x1 = x0 + calc_error
-        y1 = 46
+        y1 = 50
 
         # Delete the old representation of position error
         self.canvas.delete(self.red_square)
@@ -490,9 +490,9 @@ class ScanFrame:
         self.queue = parameters.queue_name
 
         # LEFT FRAME WIDGETS
-        self.start = Button(topFrame, text="START", font="Courier, 12", activeforeground="black", activebackground="#00aa00",
+        self.start = Button(topFrame, text="START", font="Courier, 12 bold", activeforeground="black", activebackground="#00aa00",
                             bg="#00aa00", width=10, command=lambda: self.start_scan())
-        self.stop = Button(topFrame, text="STOP", font="Courier, 12", activeforeground="black", activebackground="#00aa00",
+        self.stop = Button(topFrame, text="STOP", font="Courier, 12 bold", activeforeground="black", activebackground="#00aa00",
                            bg="#00aa00", width=10, state=DISABLED, command=lambda: self.stop_scan())
         self.pause = Button(topFrame, text="PAUSE", activeforeground="black", activebackground="#00aa00",
                             bg="#00aa00", width=8, state=DISABLED, command=lambda: self.pause_scan())
@@ -574,7 +574,7 @@ class ScanFrame:
                 return
             # If there is a negative sign
             if("-" in check_data[i]):
-                # There should only be one and it should be at the beggining
+                # There should only be one and it should be at the beginning
                 if(check_data[i].count("-") == 1 and check_data[i].index('-') == 0):
                     # Remove the negative sign and continue to next check
                     check_data[i] = check_data[i].replace("-","",1)
@@ -614,7 +614,11 @@ class ScanFrame:
         if (self.index_stop > self.index_start):
             messagebox.showinfo("Bad Scan Input", "Index Start must be greater than Index Stop")
             return
-        if ((self.index_stop - self.index_start) % self.index_size > 0.000001):
+
+        rounded = round((self.index_stop - self.index_start) / self.index_size)
+        actual = (self.index_stop - self.index_start) / self.index_size
+
+        if (rounded != round(actual,10)):
             messagebox.showinfo("Bad Scan Input", "Index Size must be a multiple of Index Start - Index Stop")
             return
 
@@ -1016,7 +1020,6 @@ class UpdateStatus(threading.Thread):
                 TIMC.scanhead.disable_axis()
                 TIMC.pusher.disable_axis()
             else:
-                print(s_fault)
                 faultMask = 1
                 # If there is a fault and scanhead is not yet disabled
                 if (s_fault != 0):
@@ -1192,6 +1195,7 @@ class UpdateLog(threading.Thread):
     def print_header(self):
         self.file.write("===============================================================\n")
         self.file.write("          Tooling Inspection Motion Controller - JPIT          \n")
+        self.file.write("                       Code Revision: 1                        \n")
         self.file.write("                         - LOG FILE -                          \n")
         self.file.write("===============================================================\n")
         self.file.write("Controller Initialized:\n")
