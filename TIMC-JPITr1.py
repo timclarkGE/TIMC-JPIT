@@ -9,8 +9,10 @@
 #   <> Fault status was called for each axis separated by 0.5 seconds, now I call both simultaneously and then wait 1 second
 #   <> When checking for a fault, I no longer check if the axis state is enabled. Lines: 1029 and 1037
 #   <> Removed estop flag
-#   <> Updated logic related to start, stop, and index size. Previously I used modulo on non integers which was causing errors
+#   <> Updated logic related to start, stop, and index size. Previously I used modulo on non integers which was causing errors. Line: 622
+#   <> Updated logic to include a check that both axes are enabled at the start of a scan. Without this the elapsed time was getting messed up. Line: 635
 #   <> Updated the look and feel of the GUI. Buttons bigger, bolded text, etc.
+
 
 # Author:   Timothy Clark
 # Email:    timoty.clark@ge.com
@@ -622,6 +624,17 @@ class ScanFrame:
 
         if (rounded != round(actual,10)):
             messagebox.showinfo("Bad Scan Input", "Index Size must be a multiple of Index Start - Index Stop")
+            return
+
+        #Check to make sure both scan axes are enabled
+        scan_status = int(TIMC.acmd(self.queue, "AXISSTATUS(SCANHEAD)"))
+        scan_enabled = 0b1 & scan_status
+
+        index_status = int(TIMC.acmd(self.queue, "AXISSTATUS(PUSHER)"))
+        index_enabled = 0b1 & index_status
+
+        if(scan_enabled != 1 or index_enabled != 1):
+            messagebox.showinfo("Error with Scan", "One or both of the axes are not enabled")
             return
 
         # Calculate the scan points with the given user input, self.scan_points will be created and initialized
